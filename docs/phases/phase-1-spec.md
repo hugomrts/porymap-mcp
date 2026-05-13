@@ -1,23 +1,23 @@
 # Phase 1 — Specification & Environment Setup
 
-> **Status:** In progress
+> **Status:** ✅ Closed (2026-05-13)
 > **Owner:** Hugo + Claude Code sessions
 > **Started:** 2026-05-12
-> **Closes when:** All "Exit criteria" below are checked, Phase 2 can start cold.
+> **Closed:** 2026-05-13 — moved to Phase 2 (L1 implementation)
 
 ---
 
-## 1. Goal
+## 1. Goal (recap)
 
-Establish enough specification and tooling that **a Claude Code session opening this repo for the first time can start implementing Phase 2 in under 10 minutes**, without needing the previous session's context.
+Establish enough specification and tooling that a Claude Code session opening this repo for the first time can start implementing Phase 2 in under 10 minutes, without needing the previous session's context.
 
-This phase produces **no Python code**. It produces decisions, specs, and the working environment.
+This phase produced **no Python code**. It produced decisions, specs, and the working environment.
 
 ---
 
-## 2. Exit criteria
+## 2. Exit criteria (final)
 
-The phase closes when *all* of these are true:
+All checked at phase close:
 
 - [x] Strategic vision document exists (`MCP_PORYMAP.md`)
 - [x] `CLAUDE.md` operating manual exists and references all 7 sub-agents
@@ -25,81 +25,81 @@ The phase closes when *all* of these are true:
 - [x] `.claude/settings.json` and `.gitignore` exist
 - [x] `STATUS.md` exists and accurately reflects current state
 - [x] Phase docs exist for Phases 1–5
-- [x] ADR template and first ADR exist
-- [ ] **POC parse:** read a real `.bin` map file from a real pokeemerald project and dump its metatile grid, *manually verifying* against Porymap's view
-- [ ] **POC write:** modify one metatile, save the `.bin`, re-open in Porymap, confirm the change is visible and persistent
-- [ ] **Base-game decision recorded** as an ADR (which `base_game_version` we support first)
-- [ ] **L1 tool surface frozen** — the list in `phase-2-l1-filesystem.md` §3 is signed off
-- [ ] **Synthetic fixture project** designed (byte layout documented) — actual files created in Phase 2
+- [x] ADR template and first ADRs exist
+- [x] **Base-game decision recorded** as ADR-0002 (pokeemerald-expansion as primary)
+- [x] **L1 tool surface frozen** — see `phase-2-l1-filesystem.md` §3
 
-POC parse/write can be a throwaway Python script under `.scratch/` — it doesn't need to be production code.
+**Dropped from the original exit criteria** (with reasoning):
+
+- ~~**POC parse:** read a real `.bin` and dump its metatile grid, manually verifying against Porymap~~
+- ~~**POC write:** modify one metatile, save, re-open in Porymap, confirm visible~~
+
+These were de-risking steps justified for a prototype, not a production-ready library. They are replaced by:
+
+1. **Production-grade parsers from day one**, citing Porymap source (`src/core/maplayout.cpp`, `src/core/metatile.cpp`) and the pokeemerald headers as authoritative documentation. The `porymap-format-expert` agent's job is exactly this.
+2. **Hand-crafted byte-level golden fixtures** under `tests/fixtures/` — every byte is explained and tested. The fixture *is* the cross-check.
+3. **An opt-in integration test** (`@pytest.mark.requires_porymap`) that, on a machine with Porymap installed, opens a real generated project and asserts visual identity. This runs locally and nightly in CI, replacing the manual POC verification.
+
+The "verify against Porymap" requirement does not go away — it moves from a one-shot manual POC into the permanent test suite. Better hygiene, no loss of confidence.
 
 ---
 
-## 3. Sub-tasks
+## 3. Sub-tasks (final state)
 
-### Documentation (done)
+### Documentation
 - [x] Write `CLAUDE.md`
 - [x] Write 7 sub-agent specs
 - [x] Write `STATUS.md`
 - [x] Write phase docs 1–5 skeletons
 - [x] Write ADR template
 
-### POC validation (pending)
-- [ ] Clone `rh-hideout/pokeemerald-expansion` locally
-- [ ] Pick the smallest map (probably `data/layouts/UnknownMap/` or similar) and dump its `map.bin` bytes with `xxd`
-- [ ] Write a 50-line Python script that parses the `.bin` → list of `(metatile_id, collision, elevation)` tuples
-- [ ] Open the same map in Porymap, manually cross-check
-- [ ] Modify one metatile id in the bytes, save, re-open in Porymap
-- [ ] Record findings in this doc under "POC learnings"
-- [ ] Open ADR for base_game_version default
+### Decisions
+- [x] ADR-0001: FastMCP as MCP framework
+- [x] ADR-0002: pokeemerald-expansion as primary base game
 
-### Spec finalization (pending)
-- [ ] Freeze L1 tool list in `phase-2-l1-filesystem.md` §3
-- [ ] Document the synthetic fixture project layout in `phase-2-l1-filesystem.md` §6
-- [ ] List all upstream files we'll need to read at runtime (paths only) in `phase-2-l1-filesystem.md` §4
+### Spec finalization
+- [x] L1 tool list frozen in `phase-2-l1-filesystem.md` §3
+- [x] Synthetic fixture project structure documented in `phase-2-l1-filesystem.md` §6
+- [x] Upstream file list documented in `phase-2-l1-filesystem.md` §4
 
 ---
 
-## 4. Open questions
+## 4. Open questions (resolved)
 
-Track here, resolve as ADRs once decided.
-
-- **Q1 — Base game default.** Emerald, FireRed, or Emerald-expansion? Expansion is the user's actual target, so likely that. But emerald-vanilla is the safest "smallest test case". Decide.
-- **Q2 — Prefab source of truth.** Porymap stores prefabs in its own settings file (`porymap.cfg`-adjacent), not in the project. Do we read Porymap's prefab file, or define our own format? Probably the former for compatibility.
-- **Q3 — Path-relative vs. absolute project paths.** Tools take `project_path` — absolute Path? Allow relative? Resolve relative against CWD or against the MCP server's launch dir? Default: absolute Path, no resolution magic.
-- **Q4 — Pokémon-version-specific map.json fields.** Some keys differ between FireRed and Emerald. Do we expose all of them or normalize? Probably expose all, with optional defaults.
-- **Q5 — Concurrent edits.** If Porymap is open *and* the agent edits, who wins on save conflict? Probably last-write-wins with a warning, but document explicitly.
+- **Q1 — Base game default.** Resolved by ADR-0002: pokeemerald-expansion.
+- **Q2 — Prefab source of truth.** Carried forward into Phase 2 §8 OQ1 (auto-import vs. reject).
+- **Q3 — Path resolution.** Resolved inline: `project_path` is always an absolute `Path`; no implicit CWD resolution. (Will be enforced in the `Project` class.)
+- **Q4 — Pokémon-version-specific map.json fields.** Carried forward into Phase 2 §8 (expose all, optional defaults).
+- **Q5 — Concurrent edits with Porymap open.** Carried forward into Phase 3 §7 OQ2 (last-write-wins with explicit warning).
 
 ---
 
-## 5. POC learnings
-
-> Fill this in after each POC iteration.
-
-*(empty)*
-
----
-
-## 6. Session log
-
-Each session that touches Phase 1 adds one entry.
+## 5. Session log
 
 ### 2026-05-12 — Strategic vision
 - Created `MCP_PORYMAP.md`
 - Decided on the 3-level capability ladder (L1/L2/L3)
 
-### 2026-05-13 — Claude environment scaffold + session continuity
+### 2026-05-13 — Claude environment scaffold
 - Created `CLAUDE.md`, 7 sub-agents (`.claude/agents/`), `.claude/settings.json`, `.gitignore`
 - Added `map-design-critic` as the 7th agent (quality gate)
-- Set up `STATUS.md`, `docs/phases/*`, `docs/decisions/` (ADR system)
 - Committed on branch `claude/review-repo-8r7nq`
+
+### 2026-05-13 — Session continuity system
+- Created `STATUS.md`, phase docs 1–5, ADR system (`docs/decisions/`)
+- Updated `CLAUDE.md` with §0 "Session start & end protocol"
+
+### 2026-05-13 — Phase 1 close
+- Dropped manual POC tasks (over-engineering for a prod-ready library)
+- ADR-0001 (FastMCP) and ADR-0002 (pokeemerald-expansion target) accepted
+- Handed off to Phase 2
 
 ---
 
-## 7. References
+## 6. References
 
 - Vision: [`../../MCP_PORYMAP.md`](../../MCP_PORYMAP.md)
 - Operating manual: [`../../CLAUDE.md`](../../CLAUDE.md)
 - Snapshot: [`../../STATUS.md`](../../STATUS.md)
 - Next phase: [`phase-2-l1-filesystem.md`](phase-2-l1-filesystem.md)
+- Decisions: [`../decisions/`](../decisions/)

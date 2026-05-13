@@ -21,6 +21,7 @@ The goal: a future Claude Code session, or a contributor 6 months from now, can 
 | ID | Title | Status |
 |----|-------|--------|
 | [0001](0001-fastmcp-as-mcp-framework.md) | Use FastMCP as the MCP framework | Accepted |
+| [0002](0002-target-pokeemerald-expansion-first.md) | Target pokeemerald-expansion as the primary base game | Accepted |
 
 > Add new rows here when an ADR lands.
 

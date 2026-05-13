@@ -5,18 +5,18 @@
 > Updated at the end of every session that moves the project forward.
 
 **Last updated:** 2026-05-13
-**Last session:** **`v0.1.0` shipped.** Phase 2 (L1 Filesystem) is closed. End-to-end integration test passed against `rh-hideout/pokeemerald-expansion` opened in Porymap on Windows (WSL2 + Claude Code CLI setup). Two interop bugs surfaced during the test and fixed in PR #7: (1) `mapjson._read_connections` is now permissive on non-list values (matches Porymap; needed for the 60+ FRLG map.json files in pokeemerald-expansion that have `"connections": 0`); (2) `Project.find_bare_by_map_id` swallows `PorymapMCPError` from malformed siblings so a single corrupt map.json doesn't block `create_map` elsewhere. Shipped `CHANGELOG.md`. **Tag `v0.1.0` published** to https://github.com/hugomrts/porymap-mcp/releases/tag/v0.1.0. **300 passing tests**, ruff/format/mypy --strict clean, CI matrix green across Python 3.11–3.13 × Ubuntu/macOS on every merged PR (#5, #6, #7).
+**Last session:** **Phase 3 (L2 — Live Porymap) abandoned. Phase 4 (L3 — Vision) is now active.** Two static-source audits of Porymap master established that the original L2 exit criteria ("Porymap reloads within ~500 ms of an L1 mutation, no human action, no spurious modal prompts") are not achievable: Porymap's `QFileSystemWatcher` deliberately excludes the files we mutate (`map.bin`, `border.bin`, `map.json`), its JS engine is a bare `QJSEngine` with zero file-read primitives (no `readFile`, no sockets, no `XMLHttpRequest`, `overlay.addImage` returns `void`), and there is no `map.reload()` Q_INVOKABLE. The only feasible "workaround" — touch `layouts.json` after every mutation to fire Porymap's modal reload prompt — has negative ROI given L3 makes Porymap's live presence strategically redundant (the agent will see its own renders inline). [ADR-0009](docs/decisions/0009-abandon-l2-live-porymap.md) records the decision and the four rejected alternatives. Phase 3 doc is marked Abandoned with the full investigation in its session log. Phase 4 doc promoted to Active. Versioning: `v0.2.0` is intentionally skipped; next ship is `v1.0.0` once L3 lands. **300 passing tests** still green at HEAD; no code changes this session.
 
 ---
 
 ## Current phase
 
-**Phase 3 — L2: Live Porymap** (not started).
-Active doc: [`docs/phases/phase-3-l2-live-porymap.md`](docs/phases/phase-3-l2-live-porymap.md)
+**Phase 4 — L3: Vision** (active).
+Active doc: [`docs/phases/phase-4-l3-vision.md`](docs/phases/phase-4-l3-vision.md)
 
-Phase 2 is closed (v0.1.0 tagged 2026-05-13). The next big piece of work is L2: detect when files change on disk and signal Porymap to reload, so the agent's edits appear live in the editor without the user re-opening the project. Start the next session by reading the phase-3 doc, then deciding the inotify/Watchdog/native-API approach.
+L3 closes the project's quality loop (`paint → render → critique → fix → re-render`) by rendering maps to PNG server-side and returning them as MCP `image` content blocks. This is what `CLAUDE.md` §3 calls "the reason the project exists in its final form". Investigation of the GBA tileset / metatile rendering pipeline is the immediate next task (delegate to `map-renderer` + `porymap-format-expert`); the design will be locked in ADR-0010 before any code lands under `src/porymap_mcp/render/`.
 
-Phase 5 (PyPI publish) is technically unblocked too — v0.1.0 is a tag, not yet a release. Either order works; L2 is more impactful to users than the PyPI publish itself.
+PyPI publish (Phase 5) remains deferred per owner directive: publish only once L3 ships and there is real visual value to demonstrate. `v0.1.0` stays a GitHub tag, not a PyPI release.
 
 ---
 
@@ -48,9 +48,9 @@ Phase 5 (PyPI publish) is technically unblocked too — v0.1.0 is a tag, not yet
 |-------|------|--------|-------------|
 | 1 — Spec | Finalize tool surface, formats, scope of L1 | ✅ Closed | — |
 | 2 — L1 (Filesystem) | MCP server that edits map files without Porymap running | ✅ Closed | `v0.1.0` tagged 2026-05-13. |
-| 3 — L2 (Live Porymap) | Porymap hot-reloads as the agent edits | **Next** | Read [phase-3 doc](docs/phases/phase-3-l2-live-porymap.md); pick a file-watcher strategy (watchdog vs inotify vs polling); decide if Porymap exposes any IPC. |
-| 4 — L3 (Vision) | Server renders maps to PNG | Not started | Wait for L2; uses `Pillow` (already an optional extra in `pyproject.toml`). |
-| 5 — Release | Publish to PyPI + community announcement | Tag exists, publish pending | Build wheel/sdist with `uv build`, `uv publish` with the project owner's PyPI token. No new code needed. |
+| 3 — L2 (Live Porymap) | Porymap hot-reloads as the agent edits | ❌ Abandoned | See [ADR-0009](docs/decisions/0009-abandon-l2-live-porymap.md). `v0.2.0` skipped. |
+| 4 — L3 (Vision) | Server renders maps to PNG | **Active** | Read [phase-4 doc](docs/phases/phase-4-l3-vision.md); investigate GBA tile/palette/metatile decode pipeline (`map-renderer` + `porymap-format-expert`); lock the renderer design in ADR-0010 before coding. |
+| 5 — Release | Publish to PyPI + community announcement | Deferred | Publish only when L3 ships and there's real visual value to demonstrate. No work until then. |
 
 ---
 
@@ -59,29 +59,32 @@ Phase 5 (PyPI publish) is technically unblocked too — v0.1.0 is a tag, not yet
 - [x] **Poryscript vs raw `.inc`** — resolved by ADR-0007: poryscript default, `.inc` fallback when `use_poryscript=0`.
 - [x] **Prefab auto-import** — resolved by ADR-0008: reject on tileset mismatch, no auto-import.
 - [x] **Typed event dataclasses** — deferred to v0.2.0 per ADR-0007 §"Decision"; raw-dict events suffice for L1.
+- [x] **L2 (Live Porymap) feasibility** — resolved by ADR-0009: abandoned. Pivot to L3.
+- [ ] **Renderer design (ADR-0010).** Open. Must lock: image library (Pillow vs numpy-backed alt), tile/metatile cache strategy, palette source of truth (.pal vs C tileset structs vs both), how to read the existing PNG tilesets in `data/tilesets/*/tiles.png`, and the MCP `image` content-block emission format. Resolve **before** writing any code under `src/porymap_mcp/render/`.
 
-Resolved decisions live under [`docs/decisions/`](docs/decisions/). No open decisions block the next session.
+Resolved decisions live under [`docs/decisions/`](docs/decisions/).
 
 ---
 
-## Next session pickup (for L2 — Live Porymap)
+## Next session pickup (for L3 — Vision)
 
-1. **Read `docs/phases/phase-3-l2-live-porymap.md`** end-to-end. The exit criteria pin down what "done" means.
-2. **The first decision is the file-watcher strategy.** Three options to evaluate (consult `mcp-tool-designer` + `rom-hack-domain` for the trade-offs):
-   - **`watchdog`** (cross-platform Python lib, well-maintained, easy install). Probably the default.
-   - **Raw `inotify` (Linux) / `kqueue` (macOS) / `ReadDirectoryChangesW` (Windows)** — more code, no extra dependency.
-   - **Polling** — last resort if file events are too unreliable across WSL2 mount points (note: the project owner's setup is WSL2 paths read from Windows Porymap; watchdog handles this but inotify will NOT see Windows-side reloads — relevant for L2's "is Porymap connected" question).
-3. **The second decision is whether Porymap exposes IPC** that lets us push a "reload this map" signal directly, vs relying on Porymap's own filesystem watcher. Look at Porymap's source (`huderlem/porymap`); the existing CLI is `porymap --help`. If no IPC, the bridge becomes one-way (we touch the file, Porymap's own watcher picks up).
-4. **Write ADR-0009** capturing the chosen strategy before coding.
-5. **Implementation order suggested by the phase doc:** detect Porymap presence → file watcher → debounce → integration test against a headless Porymap → tag `v0.2.0`.
+1. **Read `docs/phases/phase-4-l3-vision.md`** end-to-end. Exit criteria pin down what "done" means; §3 sketches the renderer module layout (`src/porymap_mcp/render/`).
+2. **Investigation first** (delegate, don't code yet):
+   - `porymap-format-expert` — exact decode pipeline from `data/tilesets/<tileset>/tiles.png` + `palettes/*.pal` + `metatiles.bin` + `metatile_attributes.bin` to a 16×16 RGBA image. Confirm palette indexing, transparency (palette index 0), bottom/top layer composition, attribute-driven flips, animated-tile quirks (Phase 4 OQ2 — render first frame, defer animation).
+   - `map-renderer` — Pillow-based pipeline design vs alternatives (raw numpy + PIL only at encode), in-call cache keying, performance targets from `.claude/agents/map-renderer.md` ("30×20 < 100 ms").
+   - Use a real `rh-hideout/pokeemerald-expansion` tileset as the reference, plus a vanilla pokeemerald town for the byte-identical golden test.
+3. **Lock the design in ADR-0010** before any code lands. Cover: image library, palette source, layer composition order, cache scope, MCP `image` block emission, the `return_render: bool = False` parameter conventions for L1 tools.
+4. **Then implement** in this order (per phase-4 §3): `tile.py` (decode tile + palette) → `metatile.py` (compose 16×16) → `layout.py` (assemble W×H, regions, border) → `overlays.py` → `encode.py` → wire `render_map`, `render_map_region`, `render_metatile` as new tools, then add `return_render` to L1 mutations.
+5. **Visual fidelity gate**: every render must pixel-match Porymap's own PNG export for the 5 reference maps listed in phase-4 §7. Golden files under `tests/fixtures/renders/`.
 
 Useful project state for the next session:
-- `Project` already has all atomic writes going through `_atomic.write_atomic`, so any file change can be hooked without changing tool code. The bridge sits *between* `Project.save_*` and the filesystem.
-- The integration test ran on **WSL2 + Windows Porymap** — that's our worst-case for file-watcher reliability. Whatever L2 strategy is picked, it has to work for this setup.
+- Pillow is already declared as an optional extra in `pyproject.toml` — promote to a required dep when render lands (or keep optional and gate `render_*` tools behind it; decide in ADR-0010).
+- The `tileset` parser already reads metatile + attribute data; the *graphics* side (tiles.png + .pal) is not yet wired. Adding that is part of L3.
+- Integration host stays WSL2 + Windows. Path handling already works for L1; render output is bytes, so cross-platform concerns are limited to encoding.
 
-## Outstanding chores (not blocking L2)
+## Outstanding chores (not blocking L3)
 
-- **PyPI publish** (Phase 5). The tag `v0.1.0` exists; `uv build` + `uv publish` is all that's left. ~10 minutes when the project owner is ready with a PyPI token.
+- **PyPI publish** (Phase 5). Deferred per owner directive: publish with L3, not before. No action required this phase.
 - **`gTileset_LittlerootTown` example in README.** The README's "first map" example uses `gTileset_LittlerootTown` as a placeholder, which does NOT exist in `rh-hideout/pokeemerald-expansion` (real label: `gTileset_Petalburg`). Vanilla pokeemerald *does* have `gTileset_LittlerootTown` though. Decision: leave the README as-is (vanilla is the documented baseline), or note both? Pure docs change.
 
 ---
@@ -90,7 +93,7 @@ Useful project state for the next session:
 
 - Vision: [`MCP_PORYMAP.md`](MCP_PORYMAP.md)
 - Operating manual: [`CLAUDE.md`](CLAUDE.md)
-- Current phase: [`docs/phases/phase-2-l1-filesystem.md`](docs/phases/phase-2-l1-filesystem.md)
+- Current phase: [`docs/phases/phase-4-l3-vision.md`](docs/phases/phase-4-l3-vision.md)
 - ADRs: [`docs/decisions/`](docs/decisions/)
 
 ---

@@ -1,7 +1,8 @@
 # Phase 4 — L3: Vision (rendering + self-critique loop)
 
-> **Status:** Not started (blocked on Phase 3 ship)
+> **Status:** Active (phase 3 abandoned per [ADR-0009](../decisions/0009-abandon-l2-live-porymap.md); this is the immediate next phase)
 > **Estimated effort:** 3–5 days
+> **Target version:** `v1.0.0` (first stable). `v0.2.0` is intentionally skipped; the roadmap goes `v0.1.0` (L1, shipped) → `v1.0.0` (L3).
 > **Closes when:** the agent can paint a map, see a PNG of its output in the tool response, run it through the design critic, apply fixes, and converge on a quality result — all in a single conversation.
 
 ---

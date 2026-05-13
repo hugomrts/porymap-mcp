@@ -28,6 +28,7 @@ The goal: a future Claude Code session, or a contributor 6 months from now, can 
 | [0006](0006-l1-mutation-tools-api.md) | L1 mutation tools — MCP API surface | Accepted |
 | [0007](0007-l1-event-tools-api.md) | L1 event-mutation tools — MCP API surface | Accepted |
 | [0008](0008-prefab-library-and-paint-prefab.md) | Prefab library format and `paint_prefab` semantics | Accepted |
+| [0009](0009-abandon-l2-live-porymap.md) | Abandon L2 (Live Porymap) and pivot directly to L3 (Vision) | Accepted |
 
 > Add new rows here when an ADR lands.
 

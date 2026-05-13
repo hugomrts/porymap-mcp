@@ -158,17 +158,18 @@ Recommended order — each step ends with passing tests:
 
 1. **Day 1 — Parsers.** Implement parsers/ + unit tests + round-trip tests against fixture. Use `porymap-format-expert` heavily.
    - [x] `parsers/mapbin.py` (also covers `border.bin`)
-   - [ ] `parsers/projectconfig.py`
+   - [x] `parsers/projectconfig.py` (resolved defaults per ADR-0003)
    - [ ] `parsers/layoutsjson.py`
    - [ ] `parsers/mapgroups.py`
    - [ ] `parsers/mapjson.py`
    - [ ] `parsers/tilesetheaders.py`
    - [ ] `parsers/metatiles.py`
-   - [ ] `parsers/attributes.py` (base-game-version branched)
+   - [ ] `parsers/attributes.py` (consumes masks from `ProjectConfig`, not branched on `base_game_version` — see ADR-0003)
+   - [ ] follow-up: refactor `parsers/mapbin.py` to take `metatile_id_mask`/`collision_mask`/`elevation_mask` as keyword args instead of module-level constants (ADR-0003 conformance; currently hardcoded matches the vanilla/expansion defaults so behavior is unchanged for v0.1.0)
 2. **Day 1.5 — Project class + errors + atomic writes.** Foundation for tools.
    - [x] `errors.py`
    - [x] `_atomic.py`
-   - [ ] `project.py` (`Project` class — lazy loader, config detection)
+   - [x] `project.py` (`Project.load(path)` per ADR-0003 — frozen, per-call constructed, single entrypoint for tools)
 3. **Day 2 — Discovery tools.** `get_project_info`, `list_maps`, `get_map_info`, `list_tilesets`, `list_metatiles`, `list_events`. Use `mcp-tool-designer` to review signatures before coding.
 4. **Day 2 — Simple mutation tools.** `paint_metatile`, `paint_rectangle`, `flood_fill`, `set_border`.
 5. **Day 2.5 — Create/resize.** `create_map`, `resize_map`, `register_map`, `unregister_map`.
@@ -202,11 +203,19 @@ Recommended order — each step ends with passing tests:
 - Fixture documentation: `tests/fixtures/README.md` with the byte-by-byte table for the 3×2 reference layout.
 - Parser sanity-checked manually against the documented fixture (round-trip OK).
 
+### 2026-05-13 — ADR-0003 + projectconfig + Project class
+
+- Resolved the ADR-0003 fork before writing the Project class: `Project.load(path)` is the sole entrypoint; tools construct it per call (no server-side state); format parameters (masks/sizes) flow through `Project.config` as explicit arguments — parsers do not branch on `base_game_version`. This aligns with how Porymap actually stores variation (explicit mask fields in the cfg) and lets pokeemerald-expansion ride through with no special enum value.
+- Shipped `parsers/projectconfig.py`: pure parser + serializer for `porymap.project.cfg`, with full round-trip preservation of unknown / `path/*` / `ident/*` keys, alphabetical write order, hex/decimal int handling, 0/1 booleans. Defaults resolved per `base_game_version` (currently only `pokeemerald`).
+- Shipped `project.py`: `Project` frozen dataclass + `Project.load`, with the v0.1.0 base-game-version policy gate (`SUPPORTED_BASE_GAME_VERSIONS = {POKEEMERALD}`).
+- Tests: 41 new test cases across `tests/unit/parsers/test_projectconfig.py` and `tests/unit/test_project.py`. All green; coverage 95% on `projectconfig.py`, 92% on `project.py`. Repo-wide: 68 tests pass, ruff + mypy clean.
+
 ### Next session pickup
-- Add `parsers/borderbin.py` (likely a thin reuse of `mapbin`)
-- Add `parsers/projectconfig.py` (parse `porymap.project.cfg`, extract `base_game_version`)
-- Add `parsers/layoutsjson.py` + `parsers/mapgroups.py`
-- Then start the `Project` class in `project.py` to tie them together.
+- `parsers/layoutsjson.py` (index of layouts; consumed by `Project.layouts` lazy property).
+- `parsers/mapgroups.py` (`map_groups.json` index).
+- `parsers/mapjson.py` (events + metadata).
+- Once those land, refactor `parsers/mapbin.py` to take the three layout masks as keyword args (ADR-0003 follow-up) and wire them in from `Project.config`.
+- Start the discovery tools (`get_project_info`, `list_maps`, `get_map_info`) — they should all use `Project.load(project_path)` at the top of the function.
 
 ---
 

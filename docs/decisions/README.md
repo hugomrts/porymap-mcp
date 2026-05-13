@@ -23,6 +23,7 @@ The goal: a future Claude Code session, or a contributor 6 months from now, can 
 | [0001](0001-fastmcp-as-mcp-framework.md) | Use FastMCP as the MCP framework | Accepted |
 | [0002](0002-target-pokeemerald-expansion-first.md) | Target pokeemerald-expansion as the primary base game | Accepted |
 | [0003](0003-project-class-and-config-driven-format.md) | `Project` class as single entrypoint, config-driven format parameters | Accepted |
+| [0004](0004-tileset-metadata-source.md) | Tileset metadata is filesystem-first, C-struct lexer is a deferred enrichment | Accepted |
 
 > Add new rows here when an ADR lands.
 

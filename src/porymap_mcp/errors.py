@@ -51,6 +51,10 @@ class MapGroupsFormatError(FormatError):
     """``data/maps/map_groups.json`` had malformed content."""
 
 
+class MapJsonFormatError(FormatError):
+    """``data/maps/<MAP>/map.json`` had malformed content."""
+
+
 class MapNotFoundError(ProjectError):
     """Referenced map name does not exist in the project."""
 

@@ -5,7 +5,7 @@
 > Updated at the end of every session that moves the project forward.
 
 **Last updated:** 2026-05-13
-**Last session:** **Phase 3 (L2 — Live Porymap) abandoned. Phase 4 (L3 — Vision) is now active.** Two static-source audits of Porymap master established that the original L2 exit criteria ("Porymap reloads within ~500 ms of an L1 mutation, no human action, no spurious modal prompts") are not achievable: Porymap's `QFileSystemWatcher` deliberately excludes the files we mutate (`map.bin`, `border.bin`, `map.json`), its JS engine is a bare `QJSEngine` with zero file-read primitives (no `readFile`, no sockets, no `XMLHttpRequest`, `overlay.addImage` returns `void`), and there is no `map.reload()` Q_INVOKABLE. The only feasible "workaround" — touch `layouts.json` after every mutation to fire Porymap's modal reload prompt — has negative ROI given L3 makes Porymap's live presence strategically redundant (the agent will see its own renders inline). [ADR-0009](docs/decisions/0009-abandon-l2-live-porymap.md) records the decision and the four rejected alternatives. Phase 3 doc is marked Abandoned with the full investigation in its session log. Phase 4 doc promoted to Active. Versioning: `v0.2.0` is intentionally skipped; next ship is `v1.0.0` once L3 lands. **300 passing tests** still green at HEAD; no code changes this session.
+**Last session:** **Phase 3 (L2) abandoned, Phase 4 (L3 — Vision) opened and design locked.** First half of the session: static-source audit of Porymap master established that autonomous live-reload is not achievable (no JS file-read primitives, native `QFileSystemWatcher` excludes `map.bin`/`map.json`, no `map.reload()` Q_INVOKABLE); abandoned in [ADR-0009](docs/decisions/0009-abandon-l2-live-porymap.md). Versioning: `v0.2.0` is intentionally skipped; next ship is `v1.0.0`. Second half: two parallel audits of the L3 decode pipeline and the Python rendering stack produced [ADR-0010](docs/decisions/0010-l3-renderer-design.md), which locks: **numpy + Pillow** (both under the `render` extra); read `tiles.png` + JASC `.pal` as the artist-source files (skip compiled `.4bpp` / `.gbapal`); apply **GBA 5-bit palette quantization** (`& 0xF8`) on every palette decode; always compose 3 metatile layers, filling the missing one in dual-layer mode from `unused_tile_{normal,covered,split}` config keys (read from `porymap.project.cfg`); fidelity criterion is **pixel-identical decoded RGBA**, not byte-identical PNG (Pillow and Qt cannot match deflate output); MCP return shape is `ToolResult(content=[Image(...)], structured_content={...})`. Connection rendering deferred to v1.1. Module structure simplified: `tile.py` + `metatile.py` merged into `compose.py`. **No code yet** — implementation begins next session. **300 passing tests** still green at HEAD.
 
 ---
 
@@ -60,27 +60,33 @@ PyPI publish (Phase 5) remains deferred per owner directive: publish only once L
 - [x] **Prefab auto-import** — resolved by ADR-0008: reject on tileset mismatch, no auto-import.
 - [x] **Typed event dataclasses** — deferred to v0.2.0 per ADR-0007 §"Decision"; raw-dict events suffice for L1.
 - [x] **L2 (Live Porymap) feasibility** — resolved by ADR-0009: abandoned. Pivot to L3.
-- [ ] **Renderer design (ADR-0010).** Open. Must lock: image library (Pillow vs numpy-backed alt), tile/metatile cache strategy, palette source of truth (.pal vs C tileset structs vs both), how to read the existing PNG tilesets in `data/tilesets/*/tiles.png`, and the MCP `image` content-block emission format. Resolve **before** writing any code under `src/porymap_mcp/render/`.
+- [x] **Renderer design** — resolved by ADR-0010: numpy + Pillow, artist-source files (`tiles.png` + JASC `.pal`), GBA 5-bit palette quantization, 3-layer composition with `unused_tile_*` fill, pixel-identical fidelity, FastMCP `ToolResult` + `Image` return shape, no connection rendering in v1.0.
 
-Resolved decisions live under [`docs/decisions/`](docs/decisions/).
+Resolved decisions live under [`docs/decisions/`](docs/decisions/). No open decisions block the next session.
 
 ---
 
-## Next session pickup (for L3 — Vision)
+## Next session pickup (L3 implementation — design is locked)
 
-1. **Read `docs/phases/phase-4-l3-vision.md`** end-to-end. Exit criteria pin down what "done" means; §3 sketches the renderer module layout (`src/porymap_mcp/render/`).
-2. **Investigation first** (delegate, don't code yet):
-   - `porymap-format-expert` — exact decode pipeline from `data/tilesets/<tileset>/tiles.png` + `palettes/*.pal` + `metatiles.bin` + `metatile_attributes.bin` to a 16×16 RGBA image. Confirm palette indexing, transparency (palette index 0), bottom/top layer composition, attribute-driven flips, animated-tile quirks (Phase 4 OQ2 — render first frame, defer animation).
-   - `map-renderer` — Pillow-based pipeline design vs alternatives (raw numpy + PIL only at encode), in-call cache keying, performance targets from `.claude/agents/map-renderer.md` ("30×20 < 100 ms").
-   - Use a real `rh-hideout/pokeemerald-expansion` tileset as the reference, plus a vanilla pokeemerald town for the byte-identical golden test.
-3. **Lock the design in ADR-0010** before any code lands. Cover: image library, palette source, layer composition order, cache scope, MCP `image` block emission, the `return_render: bool = False` parameter conventions for L1 tools.
-4. **Then implement** in this order (per phase-4 §3): `tile.py` (decode tile + palette) → `metatile.py` (compose 16×16) → `layout.py` (assemble W×H, regions, border) → `overlays.py` → `encode.py` → wire `render_map`, `render_map_region`, `render_metatile` as new tools, then add `return_render` to L1 mutations.
-5. **Visual fidelity gate**: every render must pixel-match Porymap's own PNG export for the 5 reference maps listed in phase-4 §7. Golden files under `tests/fixtures/renders/`.
+1. **Re-read [`docs/phases/phase-4-l3-vision.md`](docs/phases/phase-4-l3-vision.md) §3, §7, and the 2026-05-13 session log entry** + **[ADR-0010](docs/decisions/0010-l3-renderer-design.md)**. Together they specify the renderer end-to-end.
+2. **Add the `render` extra to `pyproject.toml`** with `Pillow>=10.0` and `numpy>=1.26`. Pillow was already listed as optional — add numpy alongside.
+3. **Extend `ProjectConfig` parser** (`src/porymap_mcp/parsers/projectconfig.py`) to read the new keys: `transparency_color`, `unused_tile_normal`, `unused_tile_covered`, `unused_tile_split`, `enable_triple_layer_metatiles`, plus the attribute mask overrides (`metatile_layer_type_mask`, etc.). These are needed before any render code can run correctly. Unit tests against a fixture `porymap.project.cfg`.
+4. **Implement renderer in dependency order** (per phase-4 §3 module layout):
+   - `compose.py` — decode `tiles.png` (mask `& 0x0F`), decode `palettes/*.pal` (apply GBA `& 0xF8` quantization, set palette-index-0 alpha 0), build `MetatileBank` with the 3-layer rule (table in ADR-0010). Unit tests with a hand-crafted 4-metatile tileset.
+   - `layout.py` — `assemble_layout(MetatileBank, metatile_grid)` via numpy fancy indexing; border rendering by reusing the same code on `border.bin` data.
+   - `encode.py` — palette-vs-RGBA selection (palette mode when area ≤ 4096 and no overlays); FastMCP `ToolResult(content=[Image(...).to_image_content()], structured_content={...})` packaging.
+   - Wire as MCP tools: `render_map`, `render_map_region`, `render_metatile` (in `tools/rendering.py`, new module). `is_porymap_connected` is gone — L2 abandoned.
+   - `overlays.py` — `collision`, `elevation`, `grid`, `events`. Bundle the 5 icons under `src/porymap_mcp/render/assets/icons/`.
+   - Add `return_render: bool = False` to every L1 mutation tool's signature. When `True`, the tool's response carries the same `Image` content block.
+5. **Fidelity corpus**. Assemble the 5-map test corpus under `tests/fixtures/renders/`. Each map has: (a) the project state (probably synthetic, possibly a tiny vendored vanilla-pokeemerald slice), (b) the Porymap reference PNG produced with **scale 1×, show connections = off, no overlays, include border per case**. CI compares `np.array_equal(decoded(ours), decoded(reference))`.
+6. **End-to-end loop** (`examples/04_render_loop/`). Last deliverable. The agent paints a town, renders, runs `map-design-critic`, applies fixes, re-renders. Score must improve measurably.
+7. **Tag `v1.0.0`** when phase-4 §2 exit criteria are all checked.
 
-Useful project state for the next session:
-- Pillow is already declared as an optional extra in `pyproject.toml` — promote to a required dep when render lands (or keep optional and gate `render_*` tools behind it; decide in ADR-0010).
-- The `tileset` parser already reads metatile + attribute data; the *graphics* side (tiles.png + .pal) is not yet wired. Adding that is part of L3.
-- Integration host stays WSL2 + Windows. Path handling already works for L1; render output is bytes, so cross-platform concerns are limited to encoding.
+Useful project state:
+- Pillow is already declared as an optional extra. Numpy must be added to the same extra.
+- The `tileset` parser already exposes metatiles and attributes (incl. `LayerType` enum). L3 only needs to add the *graphics* side (`tiles.png` + `.pal`) and consume the existing attribute output.
+- `porymap.project.cfg` parser is **NOT YET** reading the new render-relevant keys — adding them is step #3 above.
+- Integration host stays WSL2 + Windows. Renderer output is bytes; cross-platform concerns are limited to encoding (PNG mode selection) and font/icon assets (bundled, deterministic).
 
 ## Outstanding chores (not blocking L3)
 

@@ -152,6 +152,25 @@ class TestRead:
         doc = mapjson.read(text)
         assert doc.connections == ()
 
+    def test_connections_int_zero_means_empty(self) -> None:
+        # pokeemerald-expansion ships 60+ FRLG map.json files with
+        # ``"connections": 0`` (an int) instead of null/array. Porymap
+        # tolerates this; so do we. The strict writer normalizes to
+        # ``null`` on next save.
+        text = MIN_TEXT.replace('"connections": null', '"connections": 0')
+        doc = mapjson.read(text)
+        assert doc.connections == ()
+        # Round-trip: writer normalizes back to null.
+        assert '"connections": null' in mapjson.write(doc)
+
+    def test_connections_any_non_list_means_empty(self) -> None:
+        # Permissive read: any non-list non-null value (string, dict, etc.)
+        # is treated as empty. Documents the Postel's-law contract.
+        for replacement in ('"connections": 0', '"connections": "0"', '"connections": {}'):
+            text = MIN_TEXT.replace('"connections": null', replacement)
+            doc = mapjson.read(text)
+            assert doc.connections == (), f"failed for {replacement!r}"
+
     def test_connection_preserves_custom_keys(self) -> None:
         text = MIN_TEXT.replace(
             '"connections": null',
@@ -244,10 +263,10 @@ class TestReadErrors:
         with pytest.raises(MapJsonFormatError, match="'floor_number': expected integer"):
             mapjson.read(text)
 
-    def test_rejects_non_array_connections(self) -> None:
-        text = MIN_TEXT.replace('"connections": null', '"connections": "north"')
-        with pytest.raises(MapJsonFormatError, match="'connections' must be"):
-            mapjson.read(text)
+    # NOTE: non-array `connections` (e.g. ``"connections": 0``) is no longer
+    # an error — it is read permissively as empty. See
+    # ``TestRead.test_connections_int_zero_means_empty`` and the docstring
+    # of :func:`mapjson._read_connections` for rationale.
 
     def test_rejects_connection_missing_required_keys(self) -> None:
         text = MIN_TEXT.replace('"connections": null', '"connections": [{"map": "X"}]')

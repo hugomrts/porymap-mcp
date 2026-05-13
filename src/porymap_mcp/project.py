@@ -25,7 +25,12 @@ from pathlib import Path
 from typing import Final
 
 from porymap_mcp._atomic import write_atomic, write_atomic_text
-from porymap_mcp.errors import MapNotFoundError, ProjectError, UnsupportedBaseGameError
+from porymap_mcp.errors import (
+    MapNotFoundError,
+    PorymapMCPError,
+    ProjectError,
+    UnsupportedBaseGameError,
+)
 from porymap_mcp.parsers import (
     layoutsjson,
     mapbin,
@@ -392,7 +397,15 @@ class Project:
         Unlike :meth:`get_map_entry`, this does **not** require the map
         to be registered in ``map_groups.json`` — it walks the filesystem
         directly. Used by ``register_map`` (which exists precisely to
-        attach an unregistered on-disk map to a group).
+        attach an unregistered on-disk map to a group) and as a
+        pre-flight duplicate check inside ``create_map``.
+
+        Tolerance: malformed map.json files are silently skipped (any
+        :class:`PorymapMCPError` raised by :mod:`mapjson` is swallowed).
+        Rationale: ``create_map`` should not fail just because a
+        *different* map in the project has bad JSON; the user can fix
+        that map separately. Without this tolerance, a single corrupt
+        map.json anywhere in the repo blocks every new-map creation.
 
         Returns the bare directory name (e.g. ``"NewTown"``) on a match,
         ``None`` if no map.json on disk declares that id.
@@ -408,7 +421,7 @@ class Project:
             try:
                 text = map_json_path.read_text(encoding="utf-8")
                 doc = mapjson.read(text)
-            except (OSError, ProjectError):
+            except (OSError, PorymapMCPError):
                 continue
             if doc.id == map_name:
                 return child.name

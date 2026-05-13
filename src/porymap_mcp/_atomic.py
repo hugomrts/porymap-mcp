@@ -16,8 +16,9 @@ def write_atomic(path: Path, data: bytes) -> None:
     """Write ``data`` to ``path`` atomically.
 
     A temporary file is created in the destination directory, then renamed
-    onto the target path via :func:`os.replace`, which is atomic on POSIX
-    and on modern Windows. On failure, the temporary file is removed.
+    onto the target path via :meth:`pathlib.Path.replace` (which wraps
+    :func:`os.replace`), an atomic op on POSIX and modern Windows. On
+    failure, the temporary file is removed.
 
     The caller is responsible for ensuring ``path.parent`` exists.
     """
@@ -33,7 +34,7 @@ def write_atomic(path: Path, data: bytes) -> None:
             f.write(data)
             f.flush()
             os.fsync(f.fileno())
-        os.replace(tmp_path, path)
+        tmp_path.replace(path)
     except BaseException:
         tmp_path.unlink(missing_ok=True)
         raise

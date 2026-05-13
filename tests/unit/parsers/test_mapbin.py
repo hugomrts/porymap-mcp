@@ -143,8 +143,8 @@ class TestRead:
             mapbin.read(b"", width=1, height=0)
 
     def test_minimal_1x1(self) -> None:
-        layout = mapbin.read(b"\x42\x10", width=1, height=1)
-        # 0x1042 → metatile_id 0x042, collision 1, elevation 1
+        layout = mapbin.read(b"\x42\x14", width=1, height=1)
+        # Little-endian uint16 == 0x1442 → metatile_id 0x042, collision 1, elevation 1
         assert layout.get(0, 0) == Tile(0x042, 1, 1)
 
 

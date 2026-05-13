@@ -121,6 +121,13 @@ disallow_untyped_defs = false
 module = ["fastmcp", "fastmcp.*"]
 ignore_missing_imports = true
 
+[[tool.mypy.overrides]]
+# numpy and Pillow are optional-extra deps (ADR-0010); mypy's isolated env
+# typically does not see them. Ignore missing imports so the strict check
+# passes without forcing every contributor to install the render extra.
+module = ["numpy", "numpy.*", "PIL", "PIL.*"]
+ignore_missing_imports = true
+
 # --- pytest ---
 [tool.pytest.ini_options]
 minversion = "8.0"

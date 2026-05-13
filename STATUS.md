@@ -5,7 +5,7 @@
 > Updated at the end of every session that moves the project forward.
 
 **Last updated:** 2026-05-13
-**Last session:** ADR-0003 written and applied. Shipped `parsers/projectconfig.py` (read + serialize + round-trip preservation of unknown/`path/*`/`ident/*` keys, defaults resolved per `base_game_version`) and `project.py` (frozen `Project` class, `Project.load(path)` as the single tool entrypoint, v0.1.0 supported-version gate = `pokeemerald`). 41 new tests, all green. Repo total: 68 tests pass, ruff + mypy clean, coverage 88% overall (95% on `projectconfig`, 92% on `project`).
+**Last session:** Integrated the orphan branch `claude/continue-project-JR44W` (3 parsers + Project class) on top of the just-merged ADR-0003 work. The shipped `Project` design pivoted from my frozen `Project.load(path)` to the orphan branch's lazy `Project(root)` with cached properties (`config`, `layouts`, `map_groups`) and atomic save methods — the ADR's core decisions (Project as single tool entrypoint, format parameters flowing through config, no parser-level `base_game_version` branching) all hold under this implementation. Repo total: 125 tests pass, ruff + mypy clean. **Tileset-headers pivot discovered** by the orphan session: `data/tilesets/headers.json` doesn't exist — metadata lives in C (`src/data/tilesets/headers.h`). That decision is **deferred to ADR-0004** (was the orphan's working name for "ADR-0003", which collided with the ADR I shipped).
 
 ---
 
@@ -28,13 +28,13 @@ We are writing production code from day one. The phase ships when all L1 tools w
 - `docs/phases/` — phase 1 closed, phases 2–5 active or pending.
 - `docs/decisions/` — ADRs 0001 (FastMCP), 0002 (pokeemerald-expansion target), 0003 (`Project` class + config-driven format).
 - `pyproject.toml`, `LICENSE`, `README.md` (skeleton), `.pre-commit-config.yaml`, `.github/workflows/ci.yml`.
-- `src/porymap_mcp/` — package skeleton + `parsers/mapbin.py`, `parsers/projectconfig.py`, `project.py` (`Project.load`).
-- `tests/` — pytest skeleton + tests for `mapbin`, `projectconfig`, `project` (68 cases, all green).
+- `src/porymap_mcp/` — four production parsers (`mapbin`, `projectconfig`, `layoutsjson`, `mapgroups`) and the `Project` class (`project.py`) tying them together with lazy property loading, atomic writes, and `map.bin`/`border.bin` dimension invariants enforced against `layouts.json`.
+- `tests/` — pytest skeleton + five production test modules (125 cases total).
 - `tests/fixtures/README.md` — hand-crafted fixture documentation.
 
-**Not yet:** the rest of the parsers (`borderbin`, `layoutsjson`, `mapgroups`, `mapjson`, `tilesetheaders`, `metatiles`, `attributes`), all tools, and the full fixture pokeemerald project beyond what `mapbin` needs. Follow-up from ADR-0003: refactor `mapbin.py` to accept the three layout masks as keyword args (so the parser drops its hardcoded constants in favor of `Project.config` values).
+**Not yet:** `parsers/mapjson.py`, `parsers/tileset.py` (blocked on ADR-0004 — see open decisions), `parsers/metatiles.py`, `parsers/attributes.py`, all tools, and the full fixture pokeemerald project beyond inline-text test fixtures.
 
-**Verified manually:** parser round-trip on the 3×2 reference fixture (pytest not available in scaffolding sandbox; CI will run the test suite on real environments).
+**Verified locally:** `pytest` → 125 passed; `ruff check .` → clean; `mypy --strict src/porymap_mcp` → clean on 11 source files.
 
 ---
 
@@ -43,7 +43,7 @@ We are writing production code from day one. The phase ships when all L1 tools w
 | Phase | Goal | Status | Next action |
 |-------|------|--------|-------------|
 | 1 — Spec | Finalize tool surface, formats, scope of L1 | ✅ Closed | — |
-| 2 — L1 (Filesystem) | MCP server that edits map files without Porymap running | In progress | Continue parsers: `layoutsjson`, `mapgroups`, `mapjson`; then refactor `mapbin` per ADR-0003; then discovery tools |
+| 2 — L1 (Filesystem) | MCP server that edits map files without Porymap running | In progress | Write ADR-0004 (tileset-metadata representation), then `parsers/mapjson.py`. Discovery tools can then be built directly on top of `Project`. |
 | 3 — L2 (Live Porymap) | Porymap hot-reloads as the agent edits | Not started | Wait for Phase 2 ship |
 | 4 — L3 (Vision) | Server renders maps to PNG | Not started | Wait for Phase 3 ship |
 | 5 — Release | Publish to PyPI + community announcement | Not started | Wait for Phase 4 ship |
@@ -52,6 +52,7 @@ We are writing production code from day one. The phase ships when all L1 tools w
 
 ## Open decisions (blocking next work)
 
+- [ ] **Tileset-metadata representation (ADR-0004)**. `data/tilesets/headers.json` does not exist — the canonical source is C (`src/data/tilesets/headers.h`) with FRLG-vs-Emerald field-order differences and `.inc` ASM fallbacks. Options: (a) write a minimal `const struct Tileset` lexer in `parsers/tileset.py`, (b) lean on Porymap to maintain a JSON cache and read that instead, (c) defer tileset awareness to L3 (rendering). **Blocks** any work touching tilesets. Pick before next implementation push.
 - [ ] **Poryscript vs raw `.inc`** for generated event scripts (Phase 2 §8 OQ3). Default direction: poryscript. ADR to write when implementing `add_sign`/`add_object_event`.
 - [ ] **Prefab auto-import** when a prefab requires a tileset the target map doesn't use (Phase 2 §8 OQ1). Default direction: reject. ADR to write when implementing `paint_prefab`.
 

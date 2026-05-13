@@ -158,18 +158,18 @@ Recommended order — each step ends with passing tests:
 
 1. **Day 1 — Parsers.** Implement parsers/ + unit tests + round-trip tests against fixture. Use `porymap-format-expert` heavily.
    - [x] `parsers/mapbin.py` (also covers `border.bin`)
-   - [x] `parsers/projectconfig.py` (resolved defaults per ADR-0003)
-   - [ ] `parsers/layoutsjson.py`
-   - [ ] `parsers/mapgroups.py`
+   - [x] `parsers/projectconfig.py`
+   - [x] `parsers/layoutsjson.py`
+   - [x] `parsers/mapgroups.py`
    - [ ] `parsers/mapjson.py`
-   - [ ] `parsers/tilesetheaders.py`
+   - [ ] `parsers/tileset.py` (blocked on ADR-0004 — tileset metadata lives in C, not JSON)
    - [ ] `parsers/metatiles.py`
    - [ ] `parsers/attributes.py` (consumes masks from `ProjectConfig`, not branched on `base_game_version` — see ADR-0003)
    - [ ] follow-up: refactor `parsers/mapbin.py` to take `metatile_id_mask`/`collision_mask`/`elevation_mask` as keyword args instead of module-level constants (ADR-0003 conformance; currently hardcoded matches the vanilla/expansion defaults so behavior is unchanged for v0.1.0)
 2. **Day 1.5 — Project class + errors + atomic writes.** Foundation for tools.
    - [x] `errors.py`
    - [x] `_atomic.py`
-   - [x] `project.py` (`Project.load(path)` per ADR-0003 — frozen, per-call constructed, single entrypoint for tools)
+   - [x] `project.py` (`Project(root)` class — lazy properties for `config` / `layouts` / `map_groups`, atomic `save_*`, dimension-checked `read_map_bin` / `write_map_bin`; satisfies ADR-0003's "Project is the single entrypoint for tools" with cached-per-instance reads — no state across tool calls)
 3. **Day 2 — Discovery tools.** `get_project_info`, `list_maps`, `get_map_info`, `list_tilesets`, `list_metatiles`, `list_events`. Use `mcp-tool-designer` to review signatures before coding.
 4. **Day 2 — Simple mutation tools.** `paint_metatile`, `paint_rectangle`, `flood_fill`, `set_border`.
 5. **Day 2.5 — Create/resize.** `create_map`, `resize_map`, `register_map`, `unregister_map`.
@@ -203,19 +203,29 @@ Recommended order — each step ends with passing tests:
 - Fixture documentation: `tests/fixtures/README.md` with the byte-by-byte table for the 3×2 reference layout.
 - Parser sanity-checked manually against the documented fixture (round-trip OK).
 
-### 2026-05-13 — ADR-0003 + projectconfig + Project class
+### 2026-05-13 — ADR-0003 (Project class + config-driven format)
+- Wrote ADR-0003 establishing `Project` as the single entrypoint for tools and committing to config-driven format parameters (no parser-level `base_game_version` branching). Shipped a first cut: `parsers/projectconfig.py` with eager-typed defaults + round-trip preservation, and a frozen `Project.load(path)` class. Merged via PR #2.
 
-- Resolved the ADR-0003 fork before writing the Project class: `Project.load(path)` is the sole entrypoint; tools construct it per call (no server-side state); format parameters (masks/sizes) flow through `Project.config` as explicit arguments — parsers do not branch on `base_game_version`. This aligns with how Porymap actually stores variation (explicit mask fields in the cfg) and lets pokeemerald-expansion ride through with no special enum value.
-- Shipped `parsers/projectconfig.py`: pure parser + serializer for `porymap.project.cfg`, with full round-trip preservation of unknown / `path/*` / `ident/*` keys, alphabetical write order, hex/decimal int handling, 0/1 booleans. Defaults resolved per `base_game_version` (currently only `pokeemerald`).
-- Shipped `project.py`: `Project` frozen dataclass + `Project.load`, with the v0.1.0 base-game-version policy gate (`SUPPORTED_BASE_GAME_VERSIONS = {POKEEMERALD}`).
-- Tests: 41 new test cases across `tests/unit/parsers/test_projectconfig.py` and `tests/unit/test_project.py`. All green; coverage 95% on `projectconfig.py`, 92% on `project.py`. Repo-wide: 68 tests pass, ruff + mypy clean.
+### 2026-05-13 — Parsers: projectconfig + layoutsjson + mapgroups (orphan-branch integration)
+- Discovered an unmerged sibling session (`claude/continue-project-JR44W`) had shipped three more parsers plus a richer `Project` design. Integrated into the trunk: kept the orphan branch's `parsers/projectconfig.py`, `parsers/layoutsjson.py`, `parsers/mapgroups.py`, and `project.py`; rolled back my ADR-0003-shipped `parsers/projectconfig.py` and `project.py` in favor of theirs (ADR's strategic decisions still hold, only the API surface differs).
+- **`parsers/projectconfig.py`** — pure read/write of `porymap.project.cfg`. `ProjectConfig.entries: dict[str, str]` for round-trip; typed property accessors (`base_game_version`, `block_*_mask`, `metatile_*_mask`, booleans), each with canonical RSE defaults when absent.
+- **`parsers/layoutsjson.py`** — pure read/write of `data/layouts/layouts.json`. Emits keys in Porymap's canonical `OrderedJson` order, 2-space indent, trailing LF; conditional `border_width`/`border_height`.
+- **`parsers/mapgroups.py`** — pure read/write of `data/maps/map_groups.json`. Preserves `group_order`, emits groups in declared order, round-trips Porymap's `customMapGroupsData` keys.
+- **`project.py`** — `Project(root)` with lazy properties (`config`, `layouts`, `map_groups`), atomic `save_*`, `get_layout` / `list_layout_ids` / `list_map_names` / `group_of` helpers, and `read_map_bin` / `write_map_bin` that enforce layout-declared dimensions against the on-disk blob.
+- Errors: `ProjectConfigFormatError`, `LayoutsJsonFormatError`, `MapGroupsFormatError` added.
+- Tests: 22 (projectconfig) + 27 (layoutsjson) + 22 (mapgroups) + 32 (project) = 103 from the orphan branch, all preserved. Repo total: **125 passing**, `mypy --strict` clean on 11 source files, `ruff` clean.
+
+### Tileset-headers pivot (deferred to ADR-0004)
+- The orphan session discovered that `data/tilesets/headers.json` **does not exist** — tileset metadata lives in C (`src/data/tilesets/headers.h` with `const struct Tileset gTileset_* = { ... };`), parsed by Porymap via `Project::readTilesetLabels` → `parser.readCStructs(...)`, with FRLG-vs-Emerald field-order differences and `.inc` ASM fallbacks for old projects. This is a non-reversible architecture decision: write a C-struct lexer in `parsers/tileset.py`? Lean on Porymap to maintain a JSON cache? Defer tileset awareness to L3? **Blocks** any tileset work. Numbered as **ADR-0004** because the orphan session's working name was "ADR-0003", which collided with the one already shipped.
 
 ### Next session pickup
-- `parsers/layoutsjson.py` (index of layouts; consumed by `Project.layouts` lazy property).
-- `parsers/mapgroups.py` (`map_groups.json` index).
-- `parsers/mapjson.py` (events + metadata).
-- Once those land, refactor `parsers/mapbin.py` to take the three layout masks as keyword args (ADR-0003 follow-up) and wire them in from `Project.config`.
-- Start the discovery tools (`get_project_info`, `list_maps`, `get_map_info`) — they should all use `Project.load(project_path)` at the top of the function.
+- **Write ADR-0004** (tileset-metadata representation) before touching any tileset code.
+- After the ADR, next parsers:
+  - `parsers/mapjson.py` (events + header metadata + connections). Splitting events vs header parsing is recommended.
+  - `parsers/tileset.py` (per ADR-0004).
+  - `parsers/metatiles.py` + `parsers/attributes.py` (consume `block_*_mask` / `metatile_*_mask` from `project.config`, **not** `base_game_version` directly — per ADR-0003).
+- Once `mapjson` lands, the discovery tools (`list_maps`, `get_map_info`, `list_events`) can be built on top of `Project` immediately.
+- Outstanding ADR-0003 follow-up: refactor `parsers/mapbin.py` to accept layout masks as kwargs from `project.config` instead of the module-level constants (current hardcoded values match vanilla/expansion defaults, so behavior is unchanged for v0.1.0).
 
 ---
 

@@ -39,6 +39,14 @@ class MapBinFormatError(FormatError):
     """``map.bin`` (or ``border.bin``) had an unexpected size or content."""
 
 
+class ProjectConfigFormatError(FormatError):
+    """``porymap.project.cfg`` had malformed content."""
+
+
+class LayoutsJsonFormatError(FormatError):
+    """``data/layouts/layouts.json`` had malformed content."""
+
+
 class MapNotFoundError(ProjectError):
     """Referenced map name does not exist in the project."""
 

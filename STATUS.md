@@ -5,7 +5,7 @@
 > Updated at the end of every session that moves the project forward.
 
 **Last updated:** 2026-05-13
-**Last session:** Phase 1 closed (ADR-0002 chose pokeemerald-expansion as primary target). Phase 2 scaffolding shipped: `pyproject.toml`, CI matrix, `src/porymap_mcp/` skeleton, first production parser `mapbin.py` + 22 unit tests, hand-crafted byte-explainable fixture.
+**Last session:** Two more production parsers shipped — `parsers/projectconfig.py` (typed accessors over an order-preserving entry dict; round-trips known and unknown keys) and `parsers/layoutsjson.py` (canonical `OrderedJson` write order, conditional border-dim emission). 49 new unit tests. Full suite at 71 passing, `mypy --strict` clean across 9 source files.
 
 ---
 
@@ -28,13 +28,13 @@ We are writing production code from day one. The phase ships when all L1 tools w
 - `docs/phases/` — phase 1 closed, phases 2–5 active or pending.
 - `docs/decisions/` — ADRs 0001 (FastMCP), 0002 (pokeemerald-expansion target).
 - `pyproject.toml`, `LICENSE`, `README.md` (skeleton), `.pre-commit-config.yaml`, `.github/workflows/ci.yml`.
-- `src/porymap_mcp/` — package skeleton + `parsers/mapbin.py` (first production parser).
-- `tests/` — pytest skeleton + `tests/unit/parsers/test_mapbin.py` (first production tests).
+- `src/porymap_mcp/` — package skeleton + three production parsers: `parsers/mapbin.py`, `parsers/projectconfig.py`, `parsers/layoutsjson.py`.
+- `tests/` — pytest skeleton + three production test modules (71 cases total).
 - `tests/fixtures/README.md` — hand-crafted fixture documentation.
 
-**Not yet:** the rest of the parsers (`borderbin`, `projectconfig`, `layoutsjson`, `mapgroups`, `mapjson`, `tilesetheaders`, `metatiles`, `attributes`), the `Project` class, all tools, and the full fixture pokeemerald project beyond what `mapbin` needs.
+**Not yet:** `parsers/mapgroups.py`, `parsers/mapjson.py`, `parsers/tilesetheaders.py`, `parsers/metatiles.py`, `parsers/attributes.py`, the `Project` class, all tools, and the full fixture pokeemerald project beyond what the current parsers need.
 
-**Verified manually:** parser round-trip on the 3×2 reference fixture (pytest not available in scaffolding sandbox; CI will run the test suite on real environments).
+**Verified locally:** `pytest -q` → 71 passed; `ruff check .` → clean; `mypy --strict src/porymap_mcp` → clean on 9 source files.
 
 ---
 
@@ -43,7 +43,7 @@ We are writing production code from day one. The phase ships when all L1 tools w
 | Phase | Goal | Status | Next action |
 |-------|------|--------|-------------|
 | 1 — Spec | Finalize tool surface, formats, scope of L1 | ✅ Closed | — |
-| 2 — L1 (Filesystem) | MCP server that edits map files without Porymap running | In progress | Continue parsers: `borderbin`, `mapjson`, then `layoutsjson` + `mapgroups` |
+| 2 — L1 (Filesystem) | MCP server that edits map files without Porymap running | In progress | Continue parsers: `mapgroups` and `mapjson`, then `tilesetheaders`/`metatiles`/`attributes`; start `Project` once `mapgroups` + `mapjson` land |
 | 3 — L2 (Live Porymap) | Porymap hot-reloads as the agent edits | Not started | Wait for Phase 2 ship |
 | 4 — L3 (Vision) | Server renders maps to PNG | Not started | Wait for Phase 3 ship |
 | 5 — Release | Publish to PyPI + community announcement | Not started | Wait for Phase 4 ship |

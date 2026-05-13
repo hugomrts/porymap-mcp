@@ -5,14 +5,16 @@
 > Updated at the end of every session that moves the project forward.
 
 **Last updated:** 2026-05-13
-**Last session:** **Phase 2 (L1 Filesystem) code-complete.** Shipped ADR-0006 (8 map/structure mutation tools), ADR-0007 (5 event-mutation tools + poryscript-default for OQ3), ADR-0008 (prefab library + `paint_prefab`). Implemented all 21 MCP tools registered on the FastMCP server: 7 discovery (`get_project_info`, `list_maps`, `get_map_info`, `list_tilesets`, `list_metatiles`, `list_prefabs`, `list_events`), 7 map mutators (`paint_metatile`, `paint_rectangle`, `flood_fill`, `set_border`, `create_map`, `resize_map`, `paint_prefab`), 2 structure (`register_map`, `unregister_map`), 5 events (`add_warp`, `add_object_event`, `add_sign`, `add_trigger`, `remove_event`). `add_sign` generates a poryscript stub (or `.inc` when `use_poryscript=0`). Shipped `parsers/metatiles.py` + `parsers/attributes.py` (config-driven mask decoding) and upgraded `list_metatiles` from stub to fully-populated. Built-in prefab library (`single_tree`, `flower_patch`, `house_small`). README updated with the "first map in 5 minutes" walkthrough. Repo total: **298 passing**, ruff + format + mypy clean on 23 source files. **What remains to ship v0.1.0:** integration test against a real Porymap binary (needs a human + a binary), CI matrix verification, PyPI publication, `v0.1.0` tag.
+**Last session:** **PR #5 merged to `main`.** Phase 2 (L1 Filesystem) is code-complete and on trunk. CI matrix verified green: Ubuntu + macOS × Python 3.11/3.12/3.13. The repo now ships ADRs 0001–0008, 21 MCP tools on the FastMCP server (7 discovery + 7 map mutators + 2 structure + 5 events), 8 parsers (`mapbin`, `projectconfig`, `layoutsjson`, `mapgroups`, `mapjson`, `tileset`, `metatiles`, `attributes`), the `Project` orchestration class, a 3-prefab built-in library, and a README walkthrough. 298 passing tests, ruff/format/mypy --strict clean on 23 source files. **What remains to ship v0.1.0:** integration test against a real Porymap binary (human-in-the-loop — follow the README walkthrough), then tag `v0.1.0`. Phase 5 (PyPI publish) deferred.
 
 ---
 
 ## Current phase
 
-**Phase 2 — L1: Filesystem MCP** (implementation in progress).
+**Phase 2 — L1: Filesystem MCP** (code-complete, merged to `main`).
 Active doc: [`docs/phases/phase-2-l1-filesystem.md`](docs/phases/phase-2-l1-filesystem.md)
+
+Remaining to close Phase 2 and tag `v0.1.0`: manual integration test against a real Porymap binary (see README). Phase 3 (L2 — Live Porymap) can start in parallel without blocking the tag.
 
 We are writing production code from day one. The phase ships when all L1 tools work, coverage targets are met, and an integration test against a real Porymap project passes.
 
@@ -43,7 +45,7 @@ We are writing production code from day one. The phase ships when all L1 tools w
 | Phase | Goal | Status | Next action |
 |-------|------|--------|-------------|
 | 1 — Spec | Finalize tool surface, formats, scope of L1 | ✅ Closed | — |
-| 2 — L1 (Filesystem) | MCP server that edits map files without Porymap running | Code-complete | All 21 tools shipped + tested. Remaining for tag: integration test against real Porymap, CI matrix verification, then tag `v0.1.0`. |
+| 2 — L1 (Filesystem) | MCP server that edits map files without Porymap running | Code-complete, merged via PR #5 | Manual integration test against a real Porymap binary, then tag `v0.1.0`. |
 | 3 — L2 (Live Porymap) | Porymap hot-reloads as the agent edits | Not started | Wait for Phase 2 ship |
 | 4 — L3 (Vision) | Server renders maps to PNG | Not started | Wait for Phase 3 ship |
 | 5 — Release | Publish to PyPI + community announcement | Not started | Wait for Phase 4 ship |

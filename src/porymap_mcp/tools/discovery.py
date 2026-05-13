@@ -30,24 +30,18 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from porymap_mcp.errors import ProjectError
+from porymap_mcp.errors import FormatError, ProjectError
+from porymap_mcp.parsers import attributes as attributes_parser
+from porymap_mcp.parsers import metatiles as metatiles_parser
+from porymap_mcp.parsers.attributes import AttributeMasks
 from porymap_mcp.parsers.mapjson import MapJson
 from porymap_mcp.parsers.tileset import TilesetEntry
-from porymap_mcp.project import DEFAULT_BORDER_SIZE
+from porymap_mcp.project import DEFAULT_BORDER_SIZE, Project
 from porymap_mcp.tools._common import load_project as _load_project
 from porymap_mcp.tools._common import posix_str as _posix_str
 
 if TYPE_CHECKING:
     from fastmcp import FastMCP
-
-
-#: A metatile occupies 16 bytes on disk in the default two-layer layout
-#: (8 sub-tile words * 2 bytes). Per ADR-0005 we use this constant for
-#: the stub-mode ``metatile_count``; projects using
-#: ``enable_triple_layer_metatiles`` will see inflated counts until
-#: ``parsers/metatiles.py`` lands and computes the size from
-#: ``ProjectConfig.enable_triple_layer_metatiles``.
-_METATILE_BYTES_DEFAULT: int = 16
 
 
 # --- 1. get_project_info ---------------------------------------------------
@@ -192,7 +186,7 @@ def list_tilesets(project_path: str) -> dict[str, Any]:
     tilesets = project.tilesets
     out: list[dict[str, Any]] = []
     for entry in tilesets:
-        out.append(_tileset_to_dict(project.root, entry))
+        out.append(_tileset_to_dict(project, entry))
     primary = sum(1 for t in tilesets if t.kind == "primary")
     secondary = len(tilesets) - primary
     return {
@@ -204,8 +198,11 @@ def list_tilesets(project_path: str) -> dict[str, Any]:
     }
 
 
-def _tileset_to_dict(project_root: Path, entry: TilesetEntry) -> dict[str, Any]:
-    metatile_count = _stub_metatile_count(project_root, entry)
+def _tileset_to_dict(project: Project, entry: TilesetEntry) -> dict[str, Any]:
+    try:
+        metatile_count = _metatile_count_for(project, entry)
+    except FormatError:
+        metatile_count = None
     return {
         "name": entry.name,
         "c_label": entry.c_label,
@@ -222,43 +219,81 @@ def _tileset_to_dict(project_root: Path, entry: TilesetEntry) -> dict[str, Any]:
     }
 
 
-def _stub_metatile_count(project_root: Path, entry: TilesetEntry) -> int | None:
-    """File-size-derived metatile count, per ADR-0005.
+def _metatile_count_for(project: Project, entry: TilesetEntry) -> int | None:
+    """Return the metatile count for ``entry`` using the project's
+    triple-layer flag, or ``None`` if ``metatiles.bin`` is missing.
 
-    Returns ``None`` if ``metatiles.bin`` is missing — a fork might omit
-    it and we should not raise. Returns ``0`` if the file exists but is
-    empty (legal, just a tileset with no metatiles yet).
+    Raises :class:`FormatError` (which propagates as a `PorymapMCPError`)
+    when the file is present but corrupt.
     """
-    metatiles_path = project_root / Path(*entry.metatiles_path.split("/"))
+    metatiles_path = project.root / Path(*entry.metatiles_path.split("/"))
     try:
-        size = metatiles_path.stat().st_size
+        data = metatiles_path.read_bytes()
     except FileNotFoundError:
         return None
-    return size // _METATILE_BYTES_DEFAULT
+    import contextlib
+
+    triple = False
+    with contextlib.suppress(ProjectError):
+        triple = project.config.enable_triple_layer_metatiles
+    return metatiles_parser.count_metatiles(data, triple_layer=triple)
 
 
 # --- 5. list_metatiles -----------------------------------------------------
 
 
 def list_metatiles(project_path: str, tileset_name: str) -> dict[str, Any]:
-    """See ADR-0005 §5. Stub mode: returns ``metatiles=[]`` and a file-size
-    derived ``metatile_count`` until ``parsers/metatiles.py`` lands."""
+    """See ADR-0005 §5. Reads ``metatiles.bin`` for the count and
+    ``metatile_attributes.bin`` for per-metatile attribute decoding."""
     project = _load_project(project_path)
     entry = project.get_tileset_by_name(tileset_name)
-    metatile_count = _stub_metatile_count(project.root, entry)
+    metatile_count = _metatile_count_for(project, entry)
+
+    metatiles_out: list[dict[str, Any]] = []
+    if metatile_count is not None and metatile_count > 0:
+        attr_path = project.root / Path(*entry.attributes_path.split("/"))
+        if attr_path.is_file():
+            cfg = project.config
+            masks = AttributeMasks(
+                behavior=cfg.metatile_behavior_mask,
+                terrain_type=cfg.metatile_terrain_type_mask,
+                encounter_type=cfg.metatile_encounter_type_mask,
+                layer_type=cfg.metatile_layer_type_mask,
+            )
+            try:
+                decoded = attributes_parser.read(
+                    attr_path.read_bytes(),
+                    attribute_size=cfg.metatile_attributes_size,
+                    masks=masks,
+                    expected_count=metatile_count,
+                )
+            except FormatError:
+                decoded = ()
+            for i, attr in enumerate(decoded):
+                metatiles_out.append(
+                    {
+                        "id": i,
+                        "attributes": {
+                            "behavior": attr.behavior,
+                            "terrain_type": attr.terrain_type,
+                            "encounter_type": attr.encounter_type,
+                            "layer_type": attr.layer_type,
+                            "raw": attr.raw,
+                        },
+                    }
+                )
     return {
         "summary": (
             f"Tileset {entry.name!r} ({entry.kind}): "
             f"{metatile_count if metatile_count is not None else 'unknown'} "
-            "metatile(s). Per-metatile attributes will land with "
-            "parsers/metatiles.py."
+            f"metatile(s); {len(metatiles_out)} with decoded attributes."
         ),
         "project_path": _posix_str(project.root),
         "tileset_name": entry.name,
         "kind": entry.kind,
         "c_label": entry.c_label,
         "metatile_count": metatile_count,
-        "metatiles": [],
+        "metatiles": metatiles_out,
     }
 
 
@@ -266,12 +301,35 @@ def list_metatiles(project_path: str, tileset_name: str) -> dict[str, Any]:
 
 
 def list_prefabs(project_path: str) -> dict[str, Any]:
-    """See ADR-0005 §6. v0.1.0 ships no prefabs; tool returns an empty list."""
+    """See ADR-0005 §6 + ADR-0008. Reads from the built-in
+    :data:`porymap_mcp.prefabs.LIBRARY`."""
+    from porymap_mcp.prefabs import LIBRARY
+
     project = _load_project(project_path)
+    prefabs: list[dict[str, Any]] = []
+    for name in sorted(LIBRARY):
+        p = LIBRARY[name]
+        prefabs.append(
+            {
+                "name": p.name,
+                "width": p.width,
+                "height": p.height,
+                "description": p.description,
+                "tileset_requirements": {
+                    "primary": p.primary_tileset,
+                    "secondary": p.secondary_tileset,
+                },
+            }
+        )
+    summary = (
+        f"Project has {len(prefabs)} bundled prefab(s) available to paint_prefab."
+        if prefabs
+        else "No prefabs are bundled in this version of porymap-mcp."
+    )
     return {
-        "summary": "No prefabs are bundled in this version of porymap-mcp.",
+        "summary": summary,
         "project_path": _posix_str(project.root),
-        "prefabs": [],
+        "prefabs": prefabs,
     }
 
 

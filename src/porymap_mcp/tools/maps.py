@@ -844,6 +844,99 @@ def resize_map(
     }
 
 
+# --- 7. paint_prefab ------------------------------------------------------
+
+
+def paint_prefab(
+    project_path: str,
+    map_name: str,
+    prefab_name: str,
+    x: int,
+    y: int,
+) -> dict[str, Any]:
+    """See ADR-0008."""
+    from porymap_mcp.prefabs import get as _get_prefab
+
+    project = _load_project(project_path)
+    prefab = _get_prefab(prefab_name)
+
+    layout_id, layout_entry = _resolve_layout(project, map_name)
+    if (
+        prefab.primary_tileset is not None
+        and prefab.primary_tileset != layout_entry.primary_tileset
+    ):
+        raise ProjectError(
+            f"paint_prefab: tileset mismatch — prefab {prefab_name!r} requires "
+            f"primary {prefab.primary_tileset!r}, map uses "
+            f"{layout_entry.primary_tileset!r}. Pick a different prefab or "
+            "change the map's tileset."
+        )
+    if (
+        prefab.secondary_tileset is not None
+        and prefab.secondary_tileset != layout_entry.secondary_tileset
+    ):
+        raise ProjectError(
+            f"paint_prefab: tileset mismatch — prefab {prefab_name!r} requires "
+            f"secondary {prefab.secondary_tileset!r}, map uses "
+            f"{layout_entry.secondary_tileset!r}."
+        )
+    # Placement bounds: anchor + prefab dims must fit inside the layout.
+    _check_coords(x, y, layout_entry.width, layout_entry.height)
+    end_x = x + prefab.width - 1
+    end_y = y + prefab.height - 1
+    if end_x >= layout_entry.width or end_y >= layout_entry.height:
+        raise CoordinatesOutOfBoundsError(end_x, end_y, layout_entry.width, layout_entry.height)
+
+    layout = project.read_map_bin(layout_id)
+    tiles_changed = 0
+    new_rows: list[tuple[Tile, ...]] = []
+    for row_y, row in enumerate(layout.tiles):
+        if not (y <= row_y <= end_y):
+            new_rows.append(row)
+            continue
+        new_row: list[Tile] = []
+        for col_x, cell in enumerate(row):
+            if x <= col_x <= end_x:
+                stamp = prefab.tiles[row_y - y][col_x - x]
+                new_tile = Tile(
+                    metatile_id=stamp.metatile_id,
+                    collision=stamp.collision,
+                    elevation=stamp.elevation,
+                )
+                if new_tile != cell:
+                    tiles_changed += 1
+                new_row.append(new_tile)
+            else:
+                new_row.append(cell)
+        new_rows.append(tuple(new_row))
+    new_layout = MapBin(width=layout.width, height=layout.height, tiles=tuple(new_rows))
+
+    response: dict[str, Any] = {
+        "project_path": _posix_str(project.root),
+        "map_name": map_name,
+        "prefab_name": prefab_name,
+        "anchor": {"x": x, "y": y},
+        "dimensions": {"width": prefab.width, "height": prefab.height},
+        "tiles_changed": tiles_changed,
+    }
+    if tiles_changed == 0:
+        response["summary"] = (
+            f"Prefab {prefab_name!r} at ({x},{y}) on {map_name} already fully matches; no change."
+        )
+        response["files_modified"] = []
+        return response
+
+    project.write_map_bin(layout_id, new_layout)
+    response["summary"] = (
+        f"Stamped prefab {prefab_name!r} ({prefab.width}x{prefab.height}) "
+        f"at ({x},{y}) on {map_name}; {tiles_changed} tile(s) changed."
+    )
+    response["files_modified"] = _summarize_files(
+        [project.resolve_path(layout_entry.blockdata_filepath)], project.root
+    )
+    return response
+
+
 # --- FastMCP registration -------------------------------------------------
 
 
@@ -855,6 +948,7 @@ def register(mcp: FastMCP) -> None:
     mcp.tool(name="set_border")(_tool_set_border)
     mcp.tool(name="create_map")(_tool_create_map)
     mcp.tool(name="resize_map")(_tool_resize_map)
+    mcp.tool(name="paint_prefab")(_tool_paint_prefab)
 
 
 def _tool_paint_metatile(
@@ -1046,10 +1140,34 @@ def _tool_resize_map(
 _KEEP_IMPORTED: tuple[Any, ...] = (MapBin, layoutsjson, mapgroups, mapjson)
 
 
+def _tool_paint_prefab(
+    project_path: str,
+    map_name: str,
+    prefab_name: str,
+    x: int,
+    y: int,
+) -> dict[str, Any]:
+    """Stamp a named prefab at (x, y) (top-left anchor).
+
+    Lists available prefabs via list_prefabs. Tileset compatibility is
+    enforced: if the prefab declares required primary/secondary tilesets,
+    the target map's layout must match. No auto-import.
+
+    Args:
+      project_path: project root.
+      map_name: MAP_* constant.
+      prefab_name: built-in prefab name (e.g. "house_small").
+      x, y: top-left anchor (must satisfy x+width<=map.width and
+        y+height<=map.height).
+    """
+    return paint_prefab(project_path, map_name, prefab_name, x, y)
+
+
 __all__ = [
     "create_map",
     "flood_fill",
     "paint_metatile",
+    "paint_prefab",
     "paint_rectangle",
     "register",
     "resize_map",

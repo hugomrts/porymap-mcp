@@ -5,7 +5,7 @@
 > Updated at the end of every session that moves the project forward.
 
 **Last updated:** 2026-05-13
-**Last session:** Wrote **ADR-0005** (L1 discovery-tool API surface, frozen for v0.1.0), added `Project.get_map_entry` / `Project.get_map_json` / `Project.iter_maps` with a per-instance `map.json` cache (bare-name keyed, resolves `MAP_*` constant via `MapJson.id`), and shipped all seven discovery tools in **`src/porymap_mcp/tools/discovery.py`** registered on the FastMCP server: `get_project_info`, `list_maps`, `get_map_info`, `list_tilesets`, `list_metatiles` (stub mode — `metatiles=[]` + file-size-derived count per ADR-0005), `list_prefabs` (empty list — discovery pair for the future `paint_prefab`), `list_events` (raw-dict events with synthesized `_event_id` of the form `<class>:<index>`). Each tool body is a plain function (testable directly); a thin `_tool_*` wrapper with the LLM-facing docstring is what FastMCP registers. Repo total: **207 passing**, ruff + format + mypy clean on 15 source files. **Discovery surface is shippable**; next session goes to mutation tools (`paint_metatile` → `flood_fill` → `set_border` → `create_map`).
+**Last session:** **Phase 2 (L1 Filesystem) code-complete.** Shipped ADR-0006 (8 map/structure mutation tools), ADR-0007 (5 event-mutation tools + poryscript-default for OQ3), ADR-0008 (prefab library + `paint_prefab`). Implemented all 21 MCP tools registered on the FastMCP server: 7 discovery (`get_project_info`, `list_maps`, `get_map_info`, `list_tilesets`, `list_metatiles`, `list_prefabs`, `list_events`), 7 map mutators (`paint_metatile`, `paint_rectangle`, `flood_fill`, `set_border`, `create_map`, `resize_map`, `paint_prefab`), 2 structure (`register_map`, `unregister_map`), 5 events (`add_warp`, `add_object_event`, `add_sign`, `add_trigger`, `remove_event`). `add_sign` generates a poryscript stub (or `.inc` when `use_poryscript=0`). Shipped `parsers/metatiles.py` + `parsers/attributes.py` (config-driven mask decoding) and upgraded `list_metatiles` from stub to fully-populated. Built-in prefab library (`single_tree`, `flower_patch`, `house_small`). README updated with the "first map in 5 minutes" walkthrough. Repo total: **298 passing**, ruff + format + mypy clean on 23 source files. **What remains to ship v0.1.0:** integration test against a real Porymap binary (needs a human + a binary), CI matrix verification, PyPI publication, `v0.1.0` tag.
 
 ---
 
@@ -26,15 +26,15 @@ We are writing production code from day one. The phase ships when all L1 tools w
 - `.claude/agents/` — 7 sub-agents.
 - `.claude/settings.json`, `.gitignore`.
 - `docs/phases/` — phase 1 closed, phases 2–5 active or pending.
-- `docs/decisions/` — ADRs 0001 (FastMCP), 0002 (pokeemerald-expansion target), 0003 (`Project` class + config-driven format), 0004 (tileset-metadata source: filesystem-first), 0005 (L1 discovery-tool API surface).
-- `pyproject.toml`, `LICENSE`, `README.md` (skeleton), `.pre-commit-config.yaml`, `.github/workflows/ci.yml`.
-- `src/porymap_mcp/` — six production parsers (`mapbin`, `projectconfig`, `layoutsjson`, `mapgroups`, `mapjson`, `tileset`), the `Project` class (`project.py`) with `iter_maps` / `get_map_entry` / `get_map_json` on top of a lazy bare-name `map.json` cache, and **`tools/discovery.py`** implementing all seven L1 read-only tools registered on the FastMCP server.
-- `tests/` — pytest skeleton + eight production test modules (207 cases total).
+- `docs/decisions/` — ADRs 0001–0008.
+- `pyproject.toml`, `LICENSE`, `README.md` (with "first map in 5 minutes"), `.pre-commit-config.yaml`, `.github/workflows/ci.yml`.
+- `src/porymap_mcp/` — eight parsers (`mapbin`, `projectconfig`, `layoutsjson`, `mapgroups`, `mapjson`, `tileset`, `metatiles`, `attributes`), the `Project` class with `iter_maps` / `get_map_entry` / `get_map_json` / `find_bare_by_map_id` / `write_border_bin`, four tool modules (`discovery`, `maps`, `projects`, `events`) implementing all 21 L1 tools, and the `prefabs` package (library + `Prefab`/`PrefabTile` types).
+- `tests/` — 298 passing cases across the parsers, project, four tool modules, and the prefab library.
 - `tests/fixtures/README.md` — hand-crafted fixture documentation.
 
-**Not yet:** typed event dataclasses (deferred until first event-mutation tool), `parsers/metatiles.py`, `parsers/attributes.py`, all mutation tools, and the full fixture pokeemerald project beyond inline-text test fixtures.
+**Not yet (post-L1):** typed event dataclasses (deferred to v0.2.0), on-disk extensible prefab JSON library (v0.2.0), L3 metatile graphic decoding for rendering, integration test against a real Porymap binary.
 
-**Verified locally:** `pytest` → 207 passed; `ruff check .` → clean; `ruff format --check .` → clean; `mypy --strict src/porymap_mcp` → clean on 15 source files.
+**Verified locally:** `pytest` → 298 passed; `ruff check .` → clean; `ruff format --check .` → clean; `mypy --strict src/porymap_mcp` → clean on 23 source files.
 
 ---
 
@@ -43,7 +43,7 @@ We are writing production code from day one. The phase ships when all L1 tools w
 | Phase | Goal | Status | Next action |
 |-------|------|--------|-------------|
 | 1 — Spec | Finalize tool surface, formats, scope of L1 | ✅ Closed | — |
-| 2 — L1 (Filesystem) | MCP server that edits map files without Porymap running | In progress | Discovery tools shipped (ADR-0005). Next: simple mutation tools — `paint_metatile`, `paint_rectangle`, `flood_fill`, `set_border` — directly on top of `Project.read_map_bin` / `Project.write_map_bin`. Consult `mcp-tool-designer` before signing off on signatures. |
+| 2 — L1 (Filesystem) | MCP server that edits map files without Porymap running | Code-complete | All 21 tools shipped + tested. Remaining for tag: integration test against real Porymap, CI matrix verification, then tag `v0.1.0`. |
 | 3 — L2 (Live Porymap) | Porymap hot-reloads as the agent edits | Not started | Wait for Phase 2 ship |
 | 4 — L3 (Vision) | Server renders maps to PNG | Not started | Wait for Phase 3 ship |
 | 5 — Release | Publish to PyPI + community announcement | Not started | Wait for Phase 4 ship |
@@ -52,11 +52,11 @@ We are writing production code from day one. The phase ships when all L1 tools w
 
 ## Open decisions (blocking next work)
 
-- [ ] **Poryscript vs raw `.inc`** for generated event scripts (Phase 2 §8 OQ3). Default direction: poryscript. ADR to write when implementing `add_sign`/`add_object_event`.
-- [ ] **Prefab auto-import** when a prefab requires a tileset the target map doesn't use (Phase 2 §8 OQ1). Default direction: reject. ADR to write when implementing `paint_prefab`.
-- [ ] **Typed event dataclasses** vs. raw-dict events (the format-expert recommended a split into `parsers/events.py` with `Union[ObjectEvent, WarpEvent, ...]` types; current parser keeps events as `dict[str, object]`). Defer until the first event-mutation tool is implemented — that's when typed access actually pays for itself. No ADR until then.
+- [x] **Poryscript vs raw `.inc`** — resolved by ADR-0007: poryscript default, `.inc` fallback when `use_poryscript=0`.
+- [x] **Prefab auto-import** — resolved by ADR-0008: reject on tileset mismatch, no auto-import.
+- [x] **Typed event dataclasses** — deferred to v0.2.0 per ADR-0007 §"Decision"; raw-dict events suffice for L1.
 
-Resolved decisions live under [`docs/decisions/`](docs/decisions/).
+Resolved decisions live under [`docs/decisions/`](docs/decisions/). No open decisions block the next session.
 
 ---
 

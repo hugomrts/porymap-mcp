@@ -391,14 +391,25 @@ class TestListTilesets:
 
 
 class TestListMetatiles:
-    def test_stub_mode(self, tmp_path: Path) -> None:
+    def test_returns_count(self, tmp_path: Path) -> None:
         _build_project(tmp_path)
         result = discovery.list_metatiles(str(tmp_path), "general")
         assert result["tileset_name"] == "general"
         assert result["kind"] == "primary"
         assert result["c_label"] == "gTileset_General"
         assert result["metatile_count"] == 8
-        assert result["metatiles"] == []
+
+    def test_decodes_attributes(self, tmp_path: Path) -> None:
+        _build_project(tmp_path)
+        # Pre-populate metatile_attributes.bin with 8 2-byte words of
+        # known values: behavior i, the rest zero.
+        attrs_path = tmp_path / "data/tilesets/primary/general/metatile_attributes.bin"
+        attrs_path.write_bytes(b"".join((i).to_bytes(2, "little") for i in range(8)))
+        result = discovery.list_metatiles(str(tmp_path), "general")
+        assert len(result["metatiles"]) == 8
+        for i, mt in enumerate(result["metatiles"]):
+            assert mt["id"] == i
+            assert mt["attributes"]["behavior"] == i
 
     def test_unknown_tileset_raises(self, tmp_path: Path) -> None:
         _build_project(tmp_path)
@@ -410,11 +421,14 @@ class TestListMetatiles:
 
 
 class TestListPrefabs:
-    def test_empty_in_v0(self, tmp_path: Path) -> None:
+    def test_returns_bundled_library(self, tmp_path: Path) -> None:
         _build_project(tmp_path)
         result = discovery.list_prefabs(str(tmp_path))
-        assert result["prefabs"] == []
-        assert "No prefabs" in result["summary"]
+        from porymap_mcp.prefabs import LIBRARY
+
+        names = {p["name"] for p in result["prefabs"]}
+        assert names == set(LIBRARY.keys())
+        assert "bundled prefab" in result["summary"]
 
 
 # --- list_events ----------------------------------------------------------

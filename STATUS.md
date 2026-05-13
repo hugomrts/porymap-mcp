@@ -5,7 +5,7 @@
 > Updated at the end of every session that moves the project forward.
 
 **Last updated:** 2026-05-13
-**Last session:** Phase 1 closed (ADR-0002 chose pokeemerald-expansion as primary target). Phase 2 scaffolding shipped: `pyproject.toml`, CI matrix, `src/porymap_mcp/` skeleton, first production parser `mapbin.py` + 22 unit tests, hand-crafted byte-explainable fixture.
+**Last session:** ADR-0003 written and applied. Shipped `parsers/projectconfig.py` (read + serialize + round-trip preservation of unknown/`path/*`/`ident/*` keys, defaults resolved per `base_game_version`) and `project.py` (frozen `Project` class, `Project.load(path)` as the single tool entrypoint, v0.1.0 supported-version gate = `pokeemerald`). 41 new tests, all green. Repo total: 68 tests pass, ruff + mypy clean, coverage 88% overall (95% on `projectconfig`, 92% on `project`).
 
 ---
 
@@ -26,13 +26,13 @@ We are writing production code from day one. The phase ships when all L1 tools w
 - `.claude/agents/` — 7 sub-agents.
 - `.claude/settings.json`, `.gitignore`.
 - `docs/phases/` — phase 1 closed, phases 2–5 active or pending.
-- `docs/decisions/` — ADRs 0001 (FastMCP), 0002 (pokeemerald-expansion target).
+- `docs/decisions/` — ADRs 0001 (FastMCP), 0002 (pokeemerald-expansion target), 0003 (`Project` class + config-driven format).
 - `pyproject.toml`, `LICENSE`, `README.md` (skeleton), `.pre-commit-config.yaml`, `.github/workflows/ci.yml`.
-- `src/porymap_mcp/` — package skeleton + `parsers/mapbin.py` (first production parser).
-- `tests/` — pytest skeleton + `tests/unit/parsers/test_mapbin.py` (first production tests).
+- `src/porymap_mcp/` — package skeleton + `parsers/mapbin.py`, `parsers/projectconfig.py`, `project.py` (`Project.load`).
+- `tests/` — pytest skeleton + tests for `mapbin`, `projectconfig`, `project` (68 cases, all green).
 - `tests/fixtures/README.md` — hand-crafted fixture documentation.
 
-**Not yet:** the rest of the parsers (`borderbin`, `projectconfig`, `layoutsjson`, `mapgroups`, `mapjson`, `tilesetheaders`, `metatiles`, `attributes`), the `Project` class, all tools, and the full fixture pokeemerald project beyond what `mapbin` needs.
+**Not yet:** the rest of the parsers (`borderbin`, `layoutsjson`, `mapgroups`, `mapjson`, `tilesetheaders`, `metatiles`, `attributes`), all tools, and the full fixture pokeemerald project beyond what `mapbin` needs. Follow-up from ADR-0003: refactor `mapbin.py` to accept the three layout masks as keyword args (so the parser drops its hardcoded constants in favor of `Project.config` values).
 
 **Verified manually:** parser round-trip on the 3×2 reference fixture (pytest not available in scaffolding sandbox; CI will run the test suite on real environments).
 
@@ -43,7 +43,7 @@ We are writing production code from day one. The phase ships when all L1 tools w
 | Phase | Goal | Status | Next action |
 |-------|------|--------|-------------|
 | 1 — Spec | Finalize tool surface, formats, scope of L1 | ✅ Closed | — |
-| 2 — L1 (Filesystem) | MCP server that edits map files without Porymap running | In progress | Continue parsers: `borderbin`, `mapjson`, then `layoutsjson` + `mapgroups` |
+| 2 — L1 (Filesystem) | MCP server that edits map files without Porymap running | In progress | Continue parsers: `layoutsjson`, `mapgroups`, `mapjson`; then refactor `mapbin` per ADR-0003; then discovery tools |
 | 3 — L2 (Live Porymap) | Porymap hot-reloads as the agent edits | Not started | Wait for Phase 2 ship |
 | 4 — L3 (Vision) | Server renders maps to PNG | Not started | Wait for Phase 3 ship |
 | 5 — Release | Publish to PyPI + community announcement | Not started | Wait for Phase 4 ship |

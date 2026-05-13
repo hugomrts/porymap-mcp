@@ -20,15 +20,24 @@ files.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Final
 
 from porymap_mcp._atomic import write_atomic, write_atomic_text
-from porymap_mcp.errors import ProjectError, UnsupportedBaseGameError
-from porymap_mcp.parsers import layoutsjson, mapbin, mapgroups, projectconfig, tileset
+from porymap_mcp.errors import MapNotFoundError, ProjectError, UnsupportedBaseGameError
+from porymap_mcp.parsers import (
+    layoutsjson,
+    mapbin,
+    mapgroups,
+    mapjson,
+    projectconfig,
+    tileset,
+)
 from porymap_mcp.parsers.layoutsjson import LayoutEntry, LayoutsJson
 from porymap_mcp.parsers.mapbin import MapBin
 from porymap_mcp.parsers.mapgroups import MapGroups
+from porymap_mcp.parsers.mapjson import MapJson
 from porymap_mcp.parsers.projectconfig import (
     SUPPORTED_BASE_GAME_VERSIONS,
     ProjectConfig,
@@ -41,6 +50,7 @@ from porymap_mcp.parsers.tileset import TilesetEntry
 DEFAULT_PROJECT_CONFIG_PATH: Final = "porymap.project.cfg"
 DEFAULT_LAYOUTS_JSON_PATH: Final = "data/layouts/layouts.json"
 DEFAULT_MAP_GROUPS_JSON_PATH: Final = "data/maps/map_groups.json"
+DEFAULT_MAPS_DIR: Final = "data/maps"
 
 #: Border size used when the project does not declare a custom size
 #: (``use_custom_border_size=0`` in ``porymap.project.cfg``). Gen-3 canonical.
@@ -59,6 +69,7 @@ class Project:
         self._layouts: LayoutsJson | None = None
         self._map_groups: MapGroups | None = None
         self._tilesets: tuple[TilesetEntry, ...] | None = None
+        self._map_jsons: dict[str, MapJson] = {}
 
     # --- Filesystem helpers --------------------------------------------
 
@@ -239,6 +250,77 @@ class Project:
                 return entry
         raise ProjectError(f"tileset not found by name: {name!r}")
 
+    # --- Map JSON -----------------------------------------------------
+
+    @property
+    def maps_dir(self) -> Path:
+        """Absolute path to the project's ``data/maps`` root."""
+        return self._root / DEFAULT_MAPS_DIR
+
+    def _read_map_json_by_bare(self, bare_name: str) -> MapJson:
+        """Read and cache ``data/maps/<bare_name>/map.json``.
+
+        Used internally by :meth:`get_map_entry` and :meth:`iter_maps`.
+        Cache is keyed by bare directory name (e.g. ``"LittlerootTown"``);
+        the MAP_* constant is recovered from :attr:`MapJson.id`.
+        """
+        cached = self._map_jsons.get(bare_name)
+        if cached is not None:
+            return cached
+        path = self.maps_dir / bare_name / "map.json"
+        try:
+            text = path.read_text(encoding="utf-8")
+        except FileNotFoundError as exc:
+            raise ProjectError(
+                f"map.json not found for {bare_name!r} at {path}. "
+                "The map is listed in map_groups.json but the directory is missing."
+            ) from exc
+        doc = mapjson.read(text)
+        self._map_jsons[bare_name] = doc
+        return doc
+
+    def iter_maps(self) -> Iterator[tuple[str, str, MapJson]]:
+        """Yield ``(bare_name, group_symbol, map_json)`` for every registered map.
+
+        Iteration order follows ``map_groups.json`` (group order then
+        in-group order). Each map.json is read at most once and cached on
+        the instance; a second pass reuses the cache.
+        """
+        groups = self.map_groups
+        for group in groups.group_order:
+            for bare in groups.groups.get(group, ()):
+                yield bare, group, self._read_map_json_by_bare(bare)
+
+    def get_map_entry(self, map_name: str) -> tuple[str, str, MapJson]:
+        """Resolve a ``MAP_*`` constant to its ``(bare_name, group, MapJson)``.
+
+        Reads each registered map's ``map.json`` lazily; the search stops
+        once a match is found. Subsequent calls hit the cache. Raises
+        :class:`MapNotFoundError` if no registered map declares
+        ``id == map_name``.
+        """
+        # Fast path: already-cached map with the requested id.
+        for bare, doc in self._map_jsons.items():
+            if doc.id == map_name:
+                group = self.group_of(bare)
+                # Sanity: a cached map should be in a group; if a fork has
+                # detached it, fall through to the slow path.
+                if group is not None:
+                    return bare, group, doc
+        # Slow path: walk groups, reading uncached maps as we go.
+        groups = self.map_groups
+        for group in groups.group_order:
+            for bare in groups.groups.get(group, ()):
+                doc = self._read_map_json_by_bare(bare)
+                if doc.id == map_name:
+                    return bare, group, doc
+        raise MapNotFoundError(map_name)
+
+    def get_map_json(self, map_name: str) -> MapJson:
+        """Convenience: return only the :class:`MapJson` for ``map_name``."""
+        _bare, _group, doc = self.get_map_entry(map_name)
+        return doc
+
     # --- Map binary I/O -----------------------------------------------
 
     def read_map_bin(self, layout_id: str) -> MapBin:
@@ -279,3 +361,55 @@ class Project:
         target = self.resolve_path(entry.blockdata_filepath)
         target.parent.mkdir(parents=True, exist_ok=True)
         write_atomic(target, mapbin.write(layout))
+
+    def write_border_bin(self, layout_id: str, border: MapBin) -> None:
+        """Atomically write a layout's ``border.bin``.
+
+        Validates ``border``'s dimensions against the layout entry's
+        declared border size (or the canonical 2x2 default when
+        ``use_custom_border_size=0``).
+        """
+        entry = self.get_layout(layout_id)
+        if entry.border_width is not None and entry.border_height is not None:
+            expected_width, expected_height = entry.border_width, entry.border_height
+        else:
+            expected_width, expected_height = DEFAULT_BORDER_SIZE
+        if (expected_width, expected_height) != (border.width, border.height):
+            raise ProjectError(
+                f"layout {layout_id!r}: border dimension mismatch — "
+                f"expected {expected_width}x{expected_height}, "
+                f"MapBin is {border.width}x{border.height}"
+            )
+        target = self.resolve_path(entry.border_filepath)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        write_atomic(target, mapbin.write(border))
+
+    # --- Map discovery on disk ----------------------------------------
+
+    def find_bare_by_map_id(self, map_name: str) -> str | None:
+        """Scan ``data/maps/*/map.json`` for a file with ``id == map_name``.
+
+        Unlike :meth:`get_map_entry`, this does **not** require the map
+        to be registered in ``map_groups.json`` — it walks the filesystem
+        directly. Used by ``register_map`` (which exists precisely to
+        attach an unregistered on-disk map to a group).
+
+        Returns the bare directory name (e.g. ``"NewTown"``) on a match,
+        ``None`` if no map.json on disk declares that id.
+        """
+        if not self.maps_dir.is_dir():
+            return None
+        for child in sorted(self.maps_dir.iterdir(), key=lambda p: p.name):
+            if not child.is_dir():
+                continue
+            map_json_path = child / "map.json"
+            if not map_json_path.is_file():
+                continue
+            try:
+                text = map_json_path.read_text(encoding="utf-8")
+                doc = mapjson.read(text)
+            except (OSError, ProjectError):
+                continue
+            if doc.id == map_name:
+                return child.name
+        return None

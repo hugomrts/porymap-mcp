@@ -64,6 +64,44 @@ Register it with your MCP client (example: Claude Desktop's `claude_desktop_conf
 
 Then point your agent at a pokeemerald-expansion project — the project path is passed per tool call.
 
+## First map in 5 minutes
+
+Once registered, ask your agent something like:
+
+> *Open my pokeemerald project at `~/code/pokeemerald`. Create a new map called `LakesideTown` in the `gMapGroup_TownsAndRoutes` group, 20×20, using `gTileset_General` + `gTileset_LittlerootTown`. Paint a small house at (3,4) and put a sign in front of it that says "Welcome to Lakeside!".*
+
+The agent will:
+
+1. Call `get_project_info` to confirm the project loads and which base game it targets.
+2. Call `list_tilesets` to confirm the two requested tilesets exist.
+3. Call `create_map` — this writes `data/maps/LakesideTown/map.json`, `data/layouts/LakesideTown/map.bin`, `data/layouts/LakesideTown/border.bin`, updates `data/layouts/layouts.json`, and registers the map in `data/maps/map_groups.json`.
+4. Call `paint_prefab("house_small", x=3, y=4)` to stamp the house footprint.
+5. Call `add_sign(x=4, y=7, text="Welcome to Lakeside!")` — this appends to `map.json` AND generates a poryscript stub at `data/maps/LakesideTown/scripts.pory`.
+
+Open the project in Porymap (or rebuild your ROM) — the map is there.
+
+### Tool surface (v0.1)
+
+**Discovery (read-only):**
+`get_project_info`, `list_maps`, `get_map_info`, `list_tilesets`, `list_metatiles`, `list_prefabs`, `list_events`.
+
+**Mutation:**
+`paint_metatile`, `paint_rectangle`, `flood_fill`, `set_border`, `paint_prefab`, `create_map`, `resize_map`, `register_map`, `unregister_map`.
+
+**Events:**
+`add_warp`, `add_object_event`, `add_sign`, `add_trigger`, `remove_event`.
+
+Every tool is documented inline (its docstring is what your agent reads). The full contracts live in the ADRs:
+
+- [ADR-0005](docs/decisions/0005-l1-discovery-tools-api.md) — discovery
+- [ADR-0006](docs/decisions/0006-l1-mutation-tools-api.md) — mutation
+- [ADR-0007](docs/decisions/0007-l1-event-tools-api.md) — events
+- [ADR-0008](docs/decisions/0008-prefab-library-and-paint-prefab.md) — prefabs
+
+### Prefab library
+
+`paint_prefab` ships with a small built-in library of tileset-agnostic stamps: `single_tree`, `flower_patch`, `house_small`. The metatile IDs target vanilla pokeemerald conventions; forks with custom tilesets may need to retarget by registering replacement prefabs into `porymap_mcp.prefabs.LIBRARY` (a plain dict). See [ADR-0008](docs/decisions/0008-prefab-library-and-paint-prefab.md).
+
 ## Develop
 
 ```bash

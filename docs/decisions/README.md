@@ -24,6 +24,10 @@ The goal: a future Claude Code session, or a contributor 6 months from now, can 
 | [0002](0002-target-pokeemerald-expansion-first.md) | Target pokeemerald-expansion as the primary base game | Accepted |
 | [0003](0003-project-class-and-config-driven-format.md) | `Project` class as single entrypoint, config-driven format parameters | Accepted |
 | [0004](0004-tileset-metadata-source.md) | Tileset metadata is filesystem-first, C-struct lexer is a deferred enrichment | Accepted |
+| [0005](0005-l1-discovery-tools-api.md) | L1 discovery tools — MCP API surface | Accepted |
+| [0006](0006-l1-mutation-tools-api.md) | L1 mutation tools — MCP API surface | Accepted |
+| [0007](0007-l1-event-tools-api.md) | L1 event-mutation tools — MCP API surface | Accepted |
+| [0008](0008-prefab-library-and-paint-prefab.md) | Prefab library format and `paint_prefab` semantics | Accepted |
 
 > Add new rows here when an ADR lands.
 

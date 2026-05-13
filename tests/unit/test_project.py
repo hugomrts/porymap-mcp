@@ -422,3 +422,70 @@ class TestSetters:
         proj = Project(tmp_path)
         with pytest.raises(ProjectError, match="save_layouts"):
             proj.save_layouts()
+
+
+# --- find_bare_by_map_id tolerance ----------------------------------------
+
+
+class TestFindBareByMapIdTolerance:
+    """Malformed map.json files must not block scans for unrelated maps.
+
+    Regression test for the v0.1.0 integration finding: pokeemerald-expansion
+    ships 60+ FRLG ``map.json`` files with ``"connections": 0`` (an int);
+    before this fix, any ``create_map`` call would walk those files,
+    raise ``MapJsonFormatError`` on the first one, and fail. We now
+    swallow any :class:`PorymapMCPError` from individual files so
+    ``find_bare_by_map_id`` can still locate well-formed siblings.
+    """
+
+    def test_skips_malformed_map_json(self, tmp_path: Path) -> None:
+        _write(tmp_path / "porymap.project.cfg", MIN_CFG)
+        # A well-formed map at data/maps/Good/map.json with id=MAP_GOOD.
+        _write(
+            tmp_path / "data" / "maps" / "Good" / "map.json",
+            """\
+{
+  "id": "MAP_GOOD",
+  "name": "Good",
+  "layout": "LAYOUT_GOOD",
+  "music": "MUS_NONE",
+  "region_map_section": "MAPSEC_NONE",
+  "requires_flash": false,
+  "weather": "WEATHER_NONE",
+  "map_type": "MAP_TYPE_TOWN",
+  "show_map_name": true,
+  "battle_scene": "MAP_BATTLE_SCENE_NORMAL",
+  "connections": null
+}
+""",
+        )
+        # A truly malformed map.json — invalid JSON, not just unusual.
+        _write(tmp_path / "data" / "maps" / "Broken" / "map.json", "{ not json")
+        # And one with the pokeemerald-expansion FRLG quirk (handled
+        # by the permissive connections reader, but still exercise it).
+        _write(
+            tmp_path / "data" / "maps" / "Frlg" / "map.json",
+            """\
+{
+  "id": "MAP_FRLG",
+  "name": "Frlg",
+  "layout": "LAYOUT_FRLG",
+  "music": "MUS_NONE",
+  "region_map_section": "MAPSEC_NONE",
+  "requires_flash": false,
+  "weather": "WEATHER_NONE",
+  "map_type": "MAP_TYPE_TOWN",
+  "show_map_name": true,
+  "battle_scene": "MAP_BATTLE_SCENE_NORMAL",
+  "connections": 0
+}
+""",
+        )
+        proj = Project(tmp_path)
+        # Despite Broken being malformed, the good map is still found.
+        assert proj.find_bare_by_map_id("MAP_GOOD") == "Good"
+        # FRLG-style quirk is now readable.
+        assert proj.find_bare_by_map_id("MAP_FRLG") == "Frlg"
+        # A genuinely missing map returns None — the malformed file is
+        # silently skipped, not surfaced as a hit or an error.
+        assert proj.find_bare_by_map_id("MAP_DOES_NOT_EXIST") is None

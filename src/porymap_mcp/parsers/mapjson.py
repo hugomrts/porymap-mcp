@@ -232,10 +232,23 @@ def read(text: str) -> MapJson:
 
 
 def _read_connections(value: object) -> tuple[Connection, ...]:
+    """Parse the ``connections`` field permissively.
+
+    Porymap's own reader silently tolerates non-array values (we have
+    observed ``"connections": 0`` in 60+ FRLG map.json files in
+    pokeemerald-expansion forks — see CHANGELOG v0.1.0). To stay
+    interoperable with Porymap-touched projects, we treat *any*
+    non-list, non-null value as an empty connection list. The strict
+    writer always emits ``null`` for empty (matching Porymap), so a
+    read-then-write cycle normalizes the format.
+    """
     if value is None:
         return ()
     if not isinstance(value, list):
-        raise MapJsonFormatError(f"'connections' must be an array or null, got {_typename(value)}")
+        # Permissive: an int (``0``) or other scalar means "no connections".
+        # Porymap tolerates this; we follow suit. The strict writer will
+        # emit ``null`` on the next save, normalizing the file.
+        return ()
     out: list[Connection] = []
     for index, entry in enumerate(value):
         if not isinstance(entry, dict):

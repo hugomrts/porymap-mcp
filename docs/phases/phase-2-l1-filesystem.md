@@ -161,8 +161,9 @@ Recommended order — each step ends with passing tests:
    - [x] `parsers/projectconfig.py`
    - [x] `parsers/layoutsjson.py`
    - [x] `parsers/mapgroups.py`
-   - [ ] `parsers/mapjson.py`
-   - [ ] `parsers/tileset.py` (blocked on ADR-0004 — tileset metadata lives in C, not JSON)
+   - [x] `parsers/mapjson.py` (header + connections typed; events kept as raw dicts for round-trip)
+   - [ ] `parsers/tileset.py` (ADR-0004 stage 1: filesystem glob of `data/tilesets/{primary,secondary}/*/`; C-struct lexer deferred)
+   - [ ] `parsers/events.py` (typed event dataclasses; deferred until the first event-mutation tool needs them — `add_warp`, `add_object_event`)
    - [ ] `parsers/metatiles.py`
    - [ ] `parsers/attributes.py` (consumes masks from `ProjectConfig`, not branched on `base_game_version` — see ADR-0003)
    - [ ] follow-up: refactor `parsers/mapbin.py` to take `metatile_id_mask`/`collision_mask`/`elevation_mask` as keyword args instead of module-level constants (ADR-0003 conformance; currently hardcoded matches the vanilla/expansion defaults so behavior is unchanged for v0.1.0)
@@ -218,13 +219,19 @@ Recommended order — each step ends with passing tests:
 ### Tileset-headers pivot (deferred to ADR-0004)
 - The orphan session discovered that `data/tilesets/headers.json` **does not exist** — tileset metadata lives in C (`src/data/tilesets/headers.h` with `const struct Tileset gTileset_* = { ... };`), parsed by Porymap via `Project::readTilesetLabels` → `parser.readCStructs(...)`, with FRLG-vs-Emerald field-order differences and `.inc` ASM fallbacks for old projects. This is a non-reversible architecture decision: write a C-struct lexer in `parsers/tileset.py`? Lean on Porymap to maintain a JSON cache? Defer tileset awareness to L3? **Blocks** any tileset work. Numbered as **ADR-0004** because the orphan session's working name was "ADR-0003", which collided with the one already shipped.
 
+### 2026-05-13 — ADR-0004 + parsers/mapjson.py
+- **ADR-0004 (tileset-metadata source)** accepted: two-stage strategy. Stage 1 (v0.1.0) is filesystem-first discovery — glob `data/tilesets/{primary,secondary}/*/`, derive the C label from directory basename via the snake_case → `gTileset_<PascalCase>` convention (marked `unverified=True`). Stage 2 (deferred until needed) adds a minimal designated-initializer C-struct lexer over `headers.h` plus an `INCBIN`/`INCGFX` resolver — purely additive. Rejected: lean on Porymap to maintain a JSON cache (no such cache exists upstream and adding it would break L1's "Porymap not required" promise); defer tileset awareness to L3 entirely (would break Phase 2 exit criteria for `list_tilesets` / `list_metatiles`); `.inc` ASM parsing (zero modern projects use it). Sourced from a deep `porymap-format-expert` brief covering RSE-vs-FRLG `struct Tileset` field-order differences, exactly which fields Porymap's `readTilesetLabels` consumes, and the `metatile_attributes_size` config knob.
+- **`parsers/mapjson.py`** implemented (~310 LOC). Top-level `MapJson` dataclass with the 14 well-known header fields typed; conditional fields (`allow_cycling`/`allow_escaping`/`allow_running`/`floor_number`) modeled as `T | None` (None = absent from JSON, parser stays pure and never touches `ProjectConfig`). `Connection` dataclass for the connections array with `map`/`offset`/`direction` typed and a `custom: dict[str, object]` for hand-edited extras. Event arrays kept as `tuple[dict[str, object], ...]` so feature-flag-gated fields (`local_id`, `quantity`, `underfoot`, object `type`) round-trip verbatim — typed event dataclasses deferred until the first mutation tool needs them.
+- Edge cases handled: `connections: null` and `connections: []` both read as empty; missing `connections` key tolerated for hand-edited files; empty connections always written as `null` to match Porymap's `Project::saveMap`. Inheritance (`shared_events_map`/`shared_scripts_map` set + event arrays absent) round-trips. Custom top-level keys preserved and appended after the canonical block. Booleans rejected for int fields and ints rejected for bool fields (defends against Python's `bool ⊆ int`).
+- Output: 2-space indent, single trailing LF, canonical key order, lowercase `null`/`true`/`false`, UTF-8 (`ensure_ascii=False`) — matches Porymap's `OrderedJson` writer byte-for-byte against the `LittlerootTown` reference fixture.
+- Tests: `tests/unit/parsers/test_mapjson.py` — 36 cases (read happy paths, every documented edge case, every type-error path, write canonical-order spot-check, round-trip on the reference fixture and the minimal fixture). 99% coverage on the new file.
+- Repo health: **161 passing**, `ruff check .` clean, `ruff format --check .` clean, `mypy --strict src/porymap_mcp` clean on 12 source files.
+
 ### Next session pickup
-- **Write ADR-0004** (tileset-metadata representation) before touching any tileset code.
-- After the ADR, next parsers:
-  - `parsers/mapjson.py` (events + header metadata + connections). Splitting events vs header parsing is recommended.
-  - `parsers/tileset.py` (per ADR-0004).
-  - `parsers/metatiles.py` + `parsers/attributes.py` (consume `block_*_mask` / `metatile_*_mask` from `project.config`, **not** `base_game_version` directly — per ADR-0003).
-- Once `mapjson` lands, the discovery tools (`list_maps`, `get_map_info`, `list_events`) can be built on top of `Project` immediately.
+- Implement `parsers/tileset.py` per ADR-0004 stage 1: `discover_tilesets(project) -> tuple[TilesetEntry, ...]` by globbing `data/tilesets/{primary,secondary}/*/`, deriving the C label by the snake_case → `gTileset_<PascalCase>` convention (with `unverified=True`), reading conventional asset paths (`tiles.png`, `metatiles.bin`, `metatile_attributes.bin`, `palettes/*.pal`). Hang it off `Project` as a lazy property.
+- Then build the discovery tools (`get_project_info`, `list_maps`, `get_map_info`, `list_tilesets`, `list_metatiles`, `list_events`) on top of `Project`. `mapjson` is in place — `list_events` returns the four event arrays directly; `get_map_info` joins layout + map.json + tileset metadata.
+- Defer `parsers/events.py` (typed event dataclasses) until the first event-mutation tool (`add_warp`, `add_object_event`) is being written. The current raw-dict representation in `mapjson.py` is enough for discovery.
+- Then `parsers/metatiles.py` + `parsers/attributes.py` (consume `block_*_mask` / `metatile_*_mask` from `project.config`, **not** `base_game_version` directly — per ADR-0003).
 - Outstanding ADR-0003 follow-up: refactor `parsers/mapbin.py` to accept layout masks as kwargs from `project.config` instead of the module-level constants (current hardcoded values match vanilla/expansion defaults, so behavior is unchanged for v0.1.0).
 
 ---

@@ -5,31 +5,36 @@
 > Updated at the end of every session that moves the project forward.
 
 **Last updated:** 2026-05-13
-**Last session:** Claude environment scaffold + session-continuity system
+**Last session:** Phase 1 closed (ADR-0002 chose pokeemerald-expansion as primary target). Phase 2 scaffolding shipped: `pyproject.toml`, CI matrix, `src/porymap_mcp/` skeleton, first production parser `mapbin.py` + 22 unit tests, hand-crafted byte-explainable fixture.
 
 ---
 
 ## Current phase
 
-**Phase 1 — Specification & environment setup.**
-Active doc: [`docs/phases/phase-1-spec.md`](docs/phases/phase-1-spec.md)
+**Phase 2 — L1: Filesystem MCP** (implementation in progress).
+Active doc: [`docs/phases/phase-2-l1-filesystem.md`](docs/phases/phase-2-l1-filesystem.md)
 
-We are *not yet* writing Python code. The current goal is to finish the spec so
-Phase 2 (L1 implementation) can start cold from any new session.
+We are writing production code from day one. The phase ships when all L1 tools work, coverage targets are met, and an integration test against a real Porymap project passes.
 
 ---
 
 ## What exists in the repo today
 
-- `MCP_PORYMAP.md` — strategic vision (FR), source of truth for *why*.
-- `CLAUDE.md` — operating manual for Claude Code sessions.
-- `.claude/agents/` — 7 specialized sub-agents (format, MCP design, domain, renderer, design critic, tests, docs).
-- `.claude/settings.json` — bash permissions.
-- `docs/phases/` — one spec per phase (this directory).
-- `docs/decisions/` — ADRs for irreversible decisions.
+- `MCP_PORYMAP.md` — strategic vision (FR).
+- `CLAUDE.md` — operating manual.
 - `STATUS.md` — this file.
+- `.claude/agents/` — 7 sub-agents.
+- `.claude/settings.json`, `.gitignore`.
+- `docs/phases/` — phase 1 closed, phases 2–5 active or pending.
+- `docs/decisions/` — ADRs 0001 (FastMCP), 0002 (pokeemerald-expansion target).
+- `pyproject.toml`, `LICENSE`, `README.md` (skeleton), `.pre-commit-config.yaml`, `.github/workflows/ci.yml`.
+- `src/porymap_mcp/` — package skeleton + `parsers/mapbin.py` (first production parser).
+- `tests/` — pytest skeleton + `tests/unit/parsers/test_mapbin.py` (first production tests).
+- `tests/fixtures/README.md` — hand-crafted fixture documentation.
 
-**Not yet:** `pyproject.toml`, `src/porymap_mcp/`, `tests/`, `README.md`, `ROADMAP.md`, `CHANGELOG.md`, `LICENSE`.
+**Not yet:** the rest of the parsers (`borderbin`, `projectconfig`, `layoutsjson`, `mapgroups`, `mapjson`, `tilesetheaders`, `metatiles`, `attributes`), the `Project` class, all tools, and the full fixture pokeemerald project beyond what `mapbin` needs.
+
+**Verified manually:** parser round-trip on the 3×2 reference fixture (pytest not available in scaffolding sandbox; CI will run the test suite on real environments).
 
 ---
 
@@ -37,21 +42,20 @@ Phase 2 (L1 implementation) can start cold from any new session.
 
 | Phase | Goal | Status | Next action |
 |-------|------|--------|-------------|
-| 1 — Spec | Finalize tool surface, formats, scope of L1 | In progress | Run POC parsing on a real pokeemerald project; confirm `.bin` byte layout |
-| 2 — L1 (Filesystem) | MCP server that edits map files without Porymap running | Not started | Wait for Phase 1 close |
+| 1 — Spec | Finalize tool surface, formats, scope of L1 | ✅ Closed | — |
+| 2 — L1 (Filesystem) | MCP server that edits map files without Porymap running | In progress | Continue parsers: `borderbin`, `mapjson`, then `layoutsjson` + `mapgroups` |
 | 3 — L2 (Live Porymap) | Porymap hot-reloads as the agent edits | Not started | Wait for Phase 2 ship |
-| 4 — L3 (Vision) | Server renders maps to PNG, agent sees its output | Not started | Wait for Phase 3 ship |
+| 4 — L3 (Vision) | Server renders maps to PNG | Not started | Wait for Phase 3 ship |
 | 5 — Release | Publish to PyPI + community announcement | Not started | Wait for Phase 4 ship |
 
 ---
 
-## Open decisions (blocking next phase)
+## Open decisions (blocking next work)
 
-- [ ] **Base game default**: which `base_game_version` is the primary target — `emerald`, `firered`, or `pokeemerald-expansion`? Affects metatile attribute encoding.
-- [ ] **First-class tool granularity**: which tools ship in L1 vs. which can wait? Draft list in `docs/phases/phase-2-l1-filesystem.md` §3.
-- [ ] **Prefab spec format**: JSON inline in `headers.json`, or a separate `prefabs.json`? Defer to Porymap's native prefab format.
+- [ ] **Poryscript vs raw `.inc`** for generated event scripts (Phase 2 §8 OQ3). Default direction: poryscript. ADR to write when implementing `add_sign`/`add_object_event`.
+- [ ] **Prefab auto-import** when a prefab requires a tileset the target map doesn't use (Phase 2 §8 OQ1). Default direction: reject. ADR to write when implementing `paint_prefab`.
 
-See `docs/decisions/` for already-resolved decisions.
+Resolved decisions live under [`docs/decisions/`](docs/decisions/).
 
 ---
 
@@ -59,7 +63,7 @@ See `docs/decisions/` for already-resolved decisions.
 
 - Vision: [`MCP_PORYMAP.md`](MCP_PORYMAP.md)
 - Operating manual: [`CLAUDE.md`](CLAUDE.md)
-- Current phase: [`docs/phases/phase-1-spec.md`](docs/phases/phase-1-spec.md)
+- Current phase: [`docs/phases/phase-2-l1-filesystem.md`](docs/phases/phase-2-l1-filesystem.md)
 - ADRs: [`docs/decisions/`](docs/decisions/)
 
 ---

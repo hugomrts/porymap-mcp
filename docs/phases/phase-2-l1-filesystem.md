@@ -157,7 +157,18 @@ To be created in Phase 2 by the `test-engineer` agent.
 Recommended order — each step ends with passing tests:
 
 1. **Day 1 — Parsers.** Implement parsers/ + unit tests + round-trip tests against fixture. Use `porymap-format-expert` heavily.
+   - [x] `parsers/mapbin.py` (also covers `border.bin`)
+   - [ ] `parsers/projectconfig.py`
+   - [ ] `parsers/layoutsjson.py`
+   - [ ] `parsers/mapgroups.py`
+   - [ ] `parsers/mapjson.py`
+   - [ ] `parsers/tilesetheaders.py`
+   - [ ] `parsers/metatiles.py`
+   - [ ] `parsers/attributes.py` (base-game-version branched)
 2. **Day 1.5 — Project class + errors + atomic writes.** Foundation for tools.
+   - [x] `errors.py`
+   - [x] `_atomic.py`
+   - [ ] `project.py` (`Project` class — lazy loader, config detection)
 3. **Day 2 — Discovery tools.** `get_project_info`, `list_maps`, `get_map_info`, `list_tilesets`, `list_metatiles`, `list_events`. Use `mcp-tool-designer` to review signatures before coding.
 4. **Day 2 — Simple mutation tools.** `paint_metatile`, `paint_rectangle`, `flood_fill`, `set_border`.
 5. **Day 2.5 — Create/resize.** `create_map`, `resize_map`, `register_map`, `unregister_map`.
@@ -177,7 +188,25 @@ Recommended order — each step ends with passing tests:
 
 ## 9. Session log
 
-*(empty — phase not started)*
+### 2026-05-13 — Phase 2 scaffolding & first parser
+- Created `pyproject.toml` (Python 3.11+, FastMCP, ruff, mypy strict, pytest, hypothesis, Pillow as `[render]` extra)
+- Created `LICENSE` (MIT), `README.md` skeleton, `.pre-commit-config.yaml`, `.github/workflows/ci.yml` (matrix: Python 3.11–3.13 × Ubuntu/macOS)
+- Created `src/porymap_mcp/` package skeleton:
+  - `__init__.py`, `__main__.py` (entry point)
+  - `server.py` (FastMCP assembly; no tools registered yet)
+  - `errors.py` (typed hierarchy: `PorymapMCPError` → `ProjectError`, `FormatError`, `MapBinFormatError`, `CoordinatesOutOfBoundsError`, `UnsupportedBaseGameError`)
+  - `_atomic.py` (atomic write helpers)
+  - `parsers/__init__.py`
+- **First production parser: `parsers/mapbin.py`** — read/write of `map.bin` and `border.bin` layout files. Pure, side-effect-free, fully typed. Covers `Tile`, `MapBin` dataclasses + `decode_tile`/`encode_tile`/`read`/`write`.
+- Tests: `tests/unit/parsers/test_mapbin.py` — 22 test cases covering decode, encode, round-trip, validation, edge cases (0xFFFF, 0x0000, oversized buffers, OOB access).
+- Fixture documentation: `tests/fixtures/README.md` with the byte-by-byte table for the 3×2 reference layout.
+- Parser sanity-checked manually against the documented fixture (round-trip OK).
+
+### Next session pickup
+- Add `parsers/borderbin.py` (likely a thin reuse of `mapbin`)
+- Add `parsers/projectconfig.py` (parse `porymap.project.cfg`, extract `base_game_version`)
+- Add `parsers/layoutsjson.py` + `parsers/mapgroups.py`
+- Then start the `Project` class in `project.py` to tie them together.
 
 ---
 

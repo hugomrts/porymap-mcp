@@ -158,8 +158,8 @@ Recommended order — each step ends with passing tests:
 
 1. **Day 1 — Parsers.** Implement parsers/ + unit tests + round-trip tests against fixture. Use `porymap-format-expert` heavily.
    - [x] `parsers/mapbin.py` (also covers `border.bin`)
-   - [ ] `parsers/projectconfig.py`
-   - [ ] `parsers/layoutsjson.py`
+   - [x] `parsers/projectconfig.py`
+   - [x] `parsers/layoutsjson.py`
    - [ ] `parsers/mapgroups.py`
    - [ ] `parsers/mapjson.py`
    - [ ] `parsers/tilesetheaders.py`
@@ -202,11 +202,19 @@ Recommended order — each step ends with passing tests:
 - Fixture documentation: `tests/fixtures/README.md` with the byte-by-byte table for the 3×2 reference layout.
 - Parser sanity-checked manually against the documented fixture (round-trip OK).
 
+### 2026-05-13 — Parsers: projectconfig + layoutsjson
+- Used `porymap-format-expert` to lock down the wire formats for `porymap.project.cfg` and `data/layouts/layouts.json` with Porymap-source citations.
+- **`parsers/projectconfig.py`** — pure read/write of `porymap.project.cfg`. Stores entries as an order-preserving `dict[str, str]`; provides typed property accessors for the bootstrap-critical keys (`base_game_version`, `use_poryscript`, `use_custom_border_size`, `enable_triple_layer_metatiles`, `metatile_attributes_size`, four `metatile_*_mask` keys, three `block_*_mask` keys), each with the canonical RSE default when absent. Round-trip is byte-stable for known *and* unknown keys.
+- **`parsers/layoutsjson.py`** — pure read/write of `data/layouts/layouts.json`. `LayoutEntry` / `LayoutsJson` dataclasses; emits keys in Porymap's canonical `OrderedJson` order with 2-space indent and trailing LF; conditionally emits `border_width`/`border_height` only when both are set; rejects `null` entries and mismatched border-dim presence.
+- Errors: added `ProjectConfigFormatError` and `LayoutsJsonFormatError` subclasses of `FormatError`.
+- Tests: `tests/unit/parsers/test_projectconfig.py` (22 cases) + `tests/unit/parsers/test_layoutsjson.py` (27 cases) covering read, write, round-trip, malformed input, key-ordering invariants, conditional border emission, and `bool`-as-`int` rejection. Full suite: 71 / 71 passing locally. `mypy --strict` clean on 9 source files; `ruff` clean across `src/` and `tests/`.
+
 ### Next session pickup
-- Add `parsers/borderbin.py` (likely a thin reuse of `mapbin`)
-- Add `parsers/projectconfig.py` (parse `porymap.project.cfg`, extract `base_game_version`)
-- Add `parsers/layoutsjson.py` + `parsers/mapgroups.py`
-- Then start the `Project` class in `project.py` to tie them together.
+- Add `parsers/mapgroups.py` (small JSON: `group_names` + a list per group). Brief format-expert ping advised for the exact key shape on disk.
+- Add `parsers/mapjson.py` (events, header metadata, connections). Largest format remaining; consider splitting events vs header parsing.
+- Add `parsers/tilesetheaders.py` (read-only for now — feeds discovery tools).
+- Then `parsers/metatiles.py` + `parsers/attributes.py` (base-game-version branched — branch on `block_*_mask` and `metatile_*_mask` from the project config, *not* on `base_game_version` directly, per the format-expert spec).
+- Once `mapgroups` + `mapjson` land, start `project.py` (`Project` class — lazy loader, config detection) to tie everything together.
 
 ---
 

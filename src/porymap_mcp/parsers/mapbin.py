@@ -50,17 +50,11 @@ class Tile:
 
     def __post_init__(self) -> None:
         if not 0 <= self.metatile_id <= MAX_METATILE_ID:
-            raise ValueError(
-                f"metatile_id={self.metatile_id} out of range (0..{MAX_METATILE_ID})"
-            )
+            raise ValueError(f"metatile_id={self.metatile_id} out of range (0..{MAX_METATILE_ID})")
         if not 0 <= self.collision <= MAX_COLLISION:
-            raise ValueError(
-                f"collision={self.collision} out of range (0..{MAX_COLLISION})"
-            )
+            raise ValueError(f"collision={self.collision} out of range (0..{MAX_COLLISION})")
         if not 0 <= self.elevation <= MAX_ELEVATION:
-            raise ValueError(
-                f"elevation={self.elevation} out of range (0..{MAX_ELEVATION})"
-            )
+            raise ValueError(f"elevation={self.elevation} out of range (0..{MAX_ELEVATION})")
 
 
 @dataclass(frozen=True, slots=True)
@@ -77,25 +71,17 @@ class MapBin:
 
     def __post_init__(self) -> None:
         if self.width <= 0 or self.height <= 0:
-            raise ValueError(
-                f"width and height must be positive (got {self.width}x{self.height})"
-            )
+            raise ValueError(f"width and height must be positive (got {self.width}x{self.height})")
         if len(self.tiles) != self.height:
-            raise ValueError(
-                f"tiles has {len(self.tiles)} rows, expected height={self.height}"
-            )
+            raise ValueError(f"tiles has {len(self.tiles)} rows, expected height={self.height}")
         for y, row in enumerate(self.tiles):
             if len(row) != self.width:
-                raise ValueError(
-                    f"tiles[{y}] has {len(row)} cols, expected width={self.width}"
-                )
+                raise ValueError(f"tiles[{y}] has {len(row)} cols, expected width={self.width}")
 
     def get(self, x: int, y: int) -> Tile:
         """Return the tile at ``(x, y)``. Raises ``IndexError`` if out of bounds."""
         if not 0 <= x < self.width or not 0 <= y < self.height:
-            raise IndexError(
-                f"({x}, {y}) is out of bounds for a {self.width}x{self.height} layout"
-            )
+            raise IndexError(f"({x}, {y}) is out of bounds for a {self.width}x{self.height} layout")
         return self.tiles[y][x]
 
 

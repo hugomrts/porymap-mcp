@@ -27,8 +27,7 @@ class UnsupportedBaseGameError(ProjectError):
         self.declared = declared
         self.supported = supported
         super().__init__(
-            f"Unsupported base_game_version: {declared!r}. "
-            f"Supported: {', '.join(supported)}."
+            f"Unsupported base_game_version: {declared!r}. Supported: {', '.join(supported)}."
         )
 
 

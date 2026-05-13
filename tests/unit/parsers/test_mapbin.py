@@ -137,9 +137,9 @@ class TestRead:
             mapbin.read(REF_3X2_BYTES + b"\x00", width=3, height=2)
 
     def test_rejects_zero_dimensions(self) -> None:
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="positive"):
             mapbin.read(b"", width=0, height=1)
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="positive"):
             mapbin.read(b"", width=1, height=0)
 
     def test_minimal_1x1(self) -> None:
@@ -188,7 +188,7 @@ class TestMapBinConstruction:
             )
 
     def test_rejects_non_positive_dimensions(self) -> None:
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="positive"):
             MapBin(width=0, height=1, tiles=())
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="positive"):
             MapBin(width=1, height=-1, tiles=())

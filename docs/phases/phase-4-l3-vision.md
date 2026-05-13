@@ -22,12 +22,12 @@ This is the **reason the project exists in its final form**. Without L3, Claude 
 
 ## 2. Exit criteria
 
-- [ ] `render_map(project_path, map_name)` returns a PNG that pixel-matches Porymap's export (0 pixel diff on default config)
+- [ ] `render_map(project_path, map_name)` returns a PNG that **pixel-matches** (decoded RGBA arrays equal, see ADR-0010 §Fidelity) Porymap's export with default flags + "show connections = off"
 - [ ] `render_map_region(...)` works for partial renders (big maps)
 - [ ] Optional overlays implemented: `collision`, `elevation`, `events`, `grid`
 - [ ] All L1 mutation tools gain `return_render: bool = False` parameter
 - [ ] Render performance hits the targets in `.claude/agents/map-renderer.md` §"Performance targets"
-- [ ] Golden PNG tests in CI (`tests/fixtures/renders/`)
+- [ ] Golden pixel tests in CI (`tests/fixtures/renders/` stores both our PNG and the Porymap reference PNG; CI decodes both to RGBA and asserts `np.array_equal`)
 - [ ] **End-to-end self-critique loop demonstrated** in `examples/04_render_loop/`:
   - Agent generates a town from a one-line brief
   - Agent calls `render_map`
@@ -40,35 +40,48 @@ This is the **reason the project exists in its final form**. Without L3, Claude 
 
 ## 3. Renderer architecture
 
-Owned by the `map-renderer` agent. See [`../../.claude/agents/map-renderer.md`](../../.claude/agents/map-renderer.md) for design rules.
+Owned by the `map-renderer` agent. See [`../../.claude/agents/map-renderer.md`](../../.claude/agents/map-renderer.md) for design rules. **Design locked in [ADR-0010](../decisions/0010-l3-renderer-design.md).**
+
+Stack: **`numpy` + `Pillow`**, both behind the `render` optional extra in `pyproject.toml`. Numpy carries the decode and compose hot path (vectorized palette indexing, layer alpha masking); Pillow handles indexed PNG decode at load time, `ImageDraw` for overlays, and the final PNG encode.
+
+Source files read (per tileset pair, primary + secondary):
+
+- `data/tilesets/<group>/<name>/tiles.png` — indexed PNG, masked `& 0x0F` (4-bpp).
+- `data/tilesets/<group>/<name>/palettes/{00..12}.pal` — JASC-PAL text. RGB masked `& 0xF8` (GBA 5-bit hardware quantization). Index 0 of each palette is transparent for upper layers.
+- `porymap.project.cfg` — `transparency_color`, `unused_tile_{normal,covered,split}`, `enable_triple_layer_metatiles`, attribute mask overrides. Read via an extended `ProjectConfig` parser.
 
 Pipeline:
 
 ```
-parsers → Tileset(tiles, palettes, metatiles, attributes)
-       → MapLayout(metatile_grid, collision_grid, elevation_grid)
+parsers → TileBank      uint8[num_tiles, 8, 8]            (palette indices)
+       → PaletteBank   uint8[num_palettes, 16, 4]         (RGBA, GBA-quantized)
+       → MetatileBank  uint8[num_metatiles, 16, 16, 4]    (composed once per call)
                        │
                        ▼
-       Renderer (Pillow)
-       ├── decode_tile(tile_id, palette) → Image 8×8 RGBA   (cached)
-       ├── compose_metatile(metatile_id) → Image 16×16 RGBA (cached)
-       ├── assemble_layout(layout)       → Image W×H RGBA
-       ├── apply_overlay(...)            → modifies in place
-       └── encode_png(image)             → bytes
+       Layout assembly (numpy advanced indexing)
+       → layout_rgba   uint8[H*16, W*16, 4]
+                       │
+                       ▼
+       Overlays (Pillow ImageDraw) → encode (Pillow PNG) → ToolResult(Image(...))
 ```
+
+Composition rule: every metatile is rendered as **3 stacked layers**. In triple-layer mode all 3 come from the file (24-byte metatile). In dual-layer mode (16-byte metatile), one layer is filled from `unused_tile_{normal,covered,split}` per the metatile's `LayerType` — see ADR-0010's composition table for the exact mapping.
 
 Modules:
 
 ```
 src/porymap_mcp/render/
 ├── __init__.py
-├── tile.py          # decode_tile, palette application
-├── metatile.py      # compose_metatile
-├── layout.py        # assemble_layout, regions, border
-├── overlays.py      # collision, elevation, events, grid
-├── encode.py        # PNG encoding, optimization
-└── cache.py         # in-call caches (no cross-call state)
+├── compose.py        # decode tiles + palettes + metatiles, build MetatileBank
+├── layout.py         # assemble_layout, regions, border
+├── overlays.py       # collision, elevation, events, grid
+├── encode.py         # PNG encoding (palette vs RGBA), MCP ToolResult packaging
+├── cache.py          # in-call caches (no cross-call state)
+└── assets/
+    └── icons/        # 12×12 RGBA PNGs: warp, object, sign, trigger, heal
 ```
+
+`compose.py` replaces the earlier `tile.py` + `metatile.py` sketch — they share the tile/palette/metatile bank state and splitting them forces awkward parameter passing for combined ~150 LOC.
 
 ---
 
@@ -119,7 +132,9 @@ If we miss these, the loop feels slow. Profile early.
 
 ## 7. Visual fidelity verification
 
-Acceptance test: byte-identical to Porymap's export for a corpus of 5 reference maps:
+Acceptance test: **pixel-identical decoded RGBA** vs Porymap's export for a corpus of 5 reference maps. See [ADR-0010 §Fidelity](../decisions/0010-l3-renderer-design.md) — byte-identical PNG is **not** required (Pillow and Qt produce different but valid containers for identical pixels).
+
+Reference corpus:
 
 1. A vanilla pokeemerald town (Littleroot Town)
 2. A vanilla pokeemerald route (Route 101)
@@ -127,21 +142,39 @@ Acceptance test: byte-identical to Porymap's export for a corpus of 5 reference 
 4. An expansion-specific map showcasing layered metatiles
 5. A handcrafted edge case (max-size, border edge, multiple elevations)
 
-These live under `tests/fixtures/renders/`. CI fails on any pixel diff.
+Each Porymap reference PNG is produced via **File → Export Map Image** with: scale 1×, **show connections = off**, no overlays, include border per the test case. v1.0 explicitly does not render connections; see ADR-0010 §Alternatives considered #5.
+
+Goldens live under `tests/fixtures/renders/`. CI loads both PNGs, converts each to RGBA via Pillow, and asserts `np.array_equal`. Regeneration uses the pytest `--update-golden` flag.
 
 ---
 
 ## 8. Open questions
 
 - **OQ1**: Native `image` content support varies across MCP clients. What's the fallback? Probably: emit the image, *also* include a `render_url: file://...` field for clients that don't render inline.
-- **OQ2**: Animated/seasonal tilesets in expansion (e.g. flowers that animate in-game). Render the first frame? All frames? Default: first frame, document.
-- **OQ3**: Map connections — show the neighboring map's edge tiles bleeding into the render, or just our map? Porymap shows neighbors at low opacity. Match it.
+- ~~**OQ2**~~: **Resolved by ADR-0010.** Animations: render the first frame only — it's already baked into `tiles.png` by construction (animated frames live in separate runtime-only files Porymap doesn't display). No work required for v1.0.
+- ~~**OQ3**~~: **Resolved by ADR-0010.** Map connections: not rendered in v1.0. Reference Porymap exports use "show connections = off". Future v1.1 may add `include_connections: bool = False`; deferred to a future ADR.
 
 ---
 
 ## 9. Session log
 
-*(empty — phase not started)*
+### 2026-05-13 — Phase 4 opened, design locked in ADR-0010
+
+Per the L2-abandonment session (see Phase 3 session log + ADR-0009), the project pivoted directly to L3. This session ran two parallel static-source audits to populate ADR-0010:
+
+1. **Decode-pipeline audit** (`porymap-format-expert`) — established exactly what Porymap reads (`tiles.png` + JASC `.pal`, never the compiled `.4bpp` / `.gbapal`), how metatiles compose (always 3 layers; in dual-layer mode the missing layer is filled from `unused_tile_{normal,covered,split}` config keys, selected by `LayerType`), how `metatile_attributes.bin` differs between RSE (2-byte) and FRLG/expansion (4-byte) layouts (the L1 parser already handles this), and that Porymap's PNG export is **RGBA-8888 via Qt's libpng**, scale 1×, no color profile.
+2. **Renderer-design audit** (`map-renderer`) — recommended **numpy + Pillow** over pure Pillow (the latter cannot comfortably meet the 60×120 < 1 s target due to per-paste Python overhead; estimated 0.3–1.5 s vs budget). Confirmed the FastMCP image-content return shape (`ToolResult` + `Image(data=, format="png")` + `structured_content`). Established that **byte-identical PNG between Pillow and Qt is impossible** — recommended downgrading the fidelity criterion to *pixel-identical decoded RGBA*, which gives the same correctness signal for the agent's consumption.
+
+Findings landed in [ADR-0010](../decisions/0010-l3-renderer-design.md). Updates to this doc reflect the locked design: §3 module layout adjusted (`tile.py` + `metatile.py` merged into `compose.py`; new `assets/icons/` directory for overlay icons); §7 fidelity criterion downgraded from "byte-identical" to "pixel-identical"; §8 OQ2 (animations) and OQ3 (connections) resolved.
+
+Critical implementation notes worth surfacing for the next session:
+
+- **GBA 5-bit palette quantization** (`c & 0xF8` on each RGB component during palette decode) is mandatory. Porymap's exported pixels reflect GBA hardware truncation, and missing this masking will fail the fidelity test on every map.
+- **`porymap.project.cfg` is now in scope for L3** — the `ProjectConfig` parser must gain `unused_tile_{normal,covered,split}`, `transparency_color`, `enable_triple_layer_metatiles`, and the attribute mask overrides. Add these to `parsers/projectconfig.py` before any render code lands.
+- **No connections in v1.0.** Reference Porymap exports for the fidelity corpus must be produced with "show connections = off". Document this clearly when goldens are generated.
+- **Implementation order** (matches phase doc §3 module list): extend `ProjectConfig` → `compose.py` (tile + palette + metatile bank) → `layout.py` (W×H assembly + border) → `encode.py` (palette-vs-RGBA selection + MCP `ToolResult` packaging) → wire `render_map`, `render_map_region`, `render_metatile` as tools → `overlays.py` → add `return_render` to L1 mutations → assemble the 5-map fidelity corpus → `examples/04_render_loop/`.
+
+Audits not committed to repo (they were tool-call transcripts), but every claim in ADR-0010 cites the underlying Porymap source file:line and external doc URLs.
 
 ---
 

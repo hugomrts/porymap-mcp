@@ -162,7 +162,7 @@ Recommended order — each step ends with passing tests:
    - [x] `parsers/layoutsjson.py`
    - [x] `parsers/mapgroups.py`
    - [x] `parsers/mapjson.py` (header + connections typed; events kept as raw dicts for round-trip)
-   - [ ] `parsers/tileset.py` (ADR-0004 stage 1: filesystem glob of `data/tilesets/{primary,secondary}/*/`; C-struct lexer deferred)
+   - [x] `parsers/tileset.py` (ADR-0004 stage 1: filesystem glob; `c_label` derived by snake_case → PascalCase, `c_label_unverified=True`. Wired into `Project` as `tilesets` lazy property + `get_tileset_by_label` / `get_tileset_by_name`. Stage 2 — `headers.h` C-struct lexer — deferred.)
    - [ ] `parsers/events.py` (typed event dataclasses; deferred until the first event-mutation tool needs them — `add_warp`, `add_object_event`)
    - [ ] `parsers/metatiles.py`
    - [ ] `parsers/attributes.py` (consumes masks from `ProjectConfig`, not branched on `base_game_version` — see ADR-0003)
@@ -227,11 +227,17 @@ Recommended order — each step ends with passing tests:
 - Tests: `tests/unit/parsers/test_mapjson.py` — 36 cases (read happy paths, every documented edge case, every type-error path, write canonical-order spot-check, round-trip on the reference fixture and the minimal fixture). 99% coverage on the new file.
 - Repo health: **161 passing**, `ruff check .` clean, `ruff format --check .` clean, `mypy --strict src/porymap_mcp` clean on 12 source files.
 
+### 2026-05-13 — parsers/tileset.py (ADR-0004 stage 1)
+- **`parsers/tileset.py`** implemented (~80 LOC): `TilesetEntry` frozen dataclass (name, derived `c_label` with `c_label_unverified=True`, kind, four POSIX-relative asset paths, `is_compressed=None`), `discover_tilesets(project_root: Path) -> tuple[TilesetEntry, ...]` globbing `data/tilesets/{primary,secondary}/*/`, plus a `derive_c_label(name)` helper for the snake_case → `gTileset_<PascalCase>` convention. Stage 2 (headers.h C-struct lexer) deferred per ADR-0004.
+- **Discovery is deterministic**: results sorted by `(kind, name)` regardless of `readdir` order; stray files at the tileset-kind directory level (e.g. a README) are skipped; subdirectories missing asset files are still reported (validation is the L1 tool's job, not discovery's).
+- **`Project` wiring**: lazy `tilesets` property (cached per instance), `get_tileset_by_label(c_label)` for resolving `layouts.json`'s `primary_tileset` / `secondary_tileset` C symbols, `get_tileset_by_name(name)` for directory-basename lookup. Both raise `ProjectError` on miss with a message that points users to ADR-0004 stage 2 when the C-label convention fails.
+- Tests: 14 new (`tests/unit/parsers/test_tileset.py`) covering `derive_c_label` edge cases (single/multi-word, empty segments) and `discover_tilesets` (empty project, primary-only, secondary-only, scrambled-order sorting, stray files, asset-less directories, POSIX path normalization, frozen-entry contract). Plus 7 new `Project`-level tests covering the lazy property, cache stability, and both lookup methods.
+- Repo health: **182 passing**, `ruff check .` clean, `ruff format --check .` clean, `mypy --strict src/porymap_mcp` clean on 13 source files. 100% line + branch coverage on `parsers/tileset.py`.
+
 ### Next session pickup
-- Implement `parsers/tileset.py` per ADR-0004 stage 1: `discover_tilesets(project) -> tuple[TilesetEntry, ...]` by globbing `data/tilesets/{primary,secondary}/*/`, deriving the C label by the snake_case → `gTileset_<PascalCase>` convention (with `unverified=True`), reading conventional asset paths (`tiles.png`, `metatiles.bin`, `metatile_attributes.bin`, `palettes/*.pal`). Hang it off `Project` as a lazy property.
-- Then build the discovery tools (`get_project_info`, `list_maps`, `get_map_info`, `list_tilesets`, `list_metatiles`, `list_events`) on top of `Project`. `mapjson` is in place — `list_events` returns the four event arrays directly; `get_map_info` joins layout + map.json + tileset metadata.
+- **Parser layer is done for L1.** Next is tools. Start by spawning `mcp-tool-designer` to sign off on the discovery-tool signatures (`get_project_info`, `list_maps`, `get_map_info`, `list_tilesets`, `list_metatiles`, `list_events`), then implement them in `src/porymap_mcp/tools/discovery.py` on top of `Project`. `Project.tilesets`, `mapjson`, `layouts`, `map_groups` are all in place; tools should be thin orchestrators.
 - Defer `parsers/events.py` (typed event dataclasses) until the first event-mutation tool (`add_warp`, `add_object_event`) is being written. The current raw-dict representation in `mapjson.py` is enough for discovery.
-- Then `parsers/metatiles.py` + `parsers/attributes.py` (consume `block_*_mask` / `metatile_*_mask` from `project.config`, **not** `base_game_version` directly — per ADR-0003).
+- Then `parsers/metatiles.py` + `parsers/attributes.py` (consume `block_*_mask` / `metatile_*_mask` from `project.config`, **not** `base_game_version` directly — per ADR-0003). Needed before `list_metatiles` returns real attribute data.
 - Outstanding ADR-0003 follow-up: refactor `parsers/mapbin.py` to accept layout masks as kwargs from `project.config` instead of the module-level constants (current hardcoded values match vanilla/expansion defaults, so behavior is unchanged for v0.1.0).
 
 ---

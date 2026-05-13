@@ -5,7 +5,7 @@
 > Updated at the end of every session that moves the project forward.
 
 **Last updated:** 2026-05-13
-**Last session:** Wrote **ADR-0004** (tileset-metadata representation) — adopting a two-stage strategy: filesystem-first discovery in v0.1.0 (glob `data/tilesets/{primary,secondary}/*/`), C-struct lexer enrichment deferred until a tool actually needs it. Then shipped `parsers/mapjson.py` — top-level `MapJson` dataclass with the 14 well-known header fields typed, `Connection` dataclass for the connections array, event arrays kept as `tuple[dict[str, object], ...]` for verbatim round-trip, custom-key preservation at both top level and inside connections. Empty `connections` is read from both `null` and `[]`, always written as `null` per Porymap. 36 new tests, repo total **161 passing**, ruff + mypy clean. Typed event dataclasses (per the format-expert's split recommendation) deferred to the session that ships `add_warp` / `add_object_event`.
+**Last session:** Wrote **ADR-0004** (tileset-metadata: filesystem-first, two-stage), shipped **`parsers/mapjson.py`** (typed top-level + Connection + raw-dict events, byte-stable round-trip against Porymap's `OrderedJson`), then shipped **`parsers/tileset.py`** stage 1 — `discover_tilesets(root)` globs `data/tilesets/{primary,secondary}/*/` and emits one `TilesetEntry` per subdirectory with the C label derived by the snake_case → `gTileset_<PascalCase>` convention (marked `c_label_unverified=True`). Wired into `Project` as a lazy `tilesets` property + `get_tileset_by_label` / `get_tileset_by_name` lookups. Repo total: **182 passing**, ruff + format + mypy clean on 13 source files. The parser layer needed for L1 discovery tools is now complete; next session can go straight to `get_project_info` / `list_maps` / `list_tilesets` / `list_metatiles` / `list_events`.
 
 ---
 
@@ -28,13 +28,13 @@ We are writing production code from day one. The phase ships when all L1 tools w
 - `docs/phases/` — phase 1 closed, phases 2–5 active or pending.
 - `docs/decisions/` — ADRs 0001 (FastMCP), 0002 (pokeemerald-expansion target), 0003 (`Project` class + config-driven format), 0004 (tileset-metadata source: filesystem-first).
 - `pyproject.toml`, `LICENSE`, `README.md` (skeleton), `.pre-commit-config.yaml`, `.github/workflows/ci.yml`.
-- `src/porymap_mcp/` — five production parsers (`mapbin`, `projectconfig`, `layoutsjson`, `mapgroups`, `mapjson`) and the `Project` class (`project.py`) tying them together with lazy property loading, atomic writes, and `map.bin`/`border.bin` dimension invariants enforced against `layouts.json`.
-- `tests/` — pytest skeleton + six production test modules (161 cases total).
+- `src/porymap_mcp/` — six production parsers (`mapbin`, `projectconfig`, `layoutsjson`, `mapgroups`, `mapjson`, `tileset`) and the `Project` class (`project.py`) tying them together with lazy property loading, atomic writes, `map.bin`/`border.bin` dimension invariants enforced against `layouts.json`, and lazy tileset discovery with label/name lookups.
+- `tests/` — pytest skeleton + seven production test modules (182 cases total).
 - `tests/fixtures/README.md` — hand-crafted fixture documentation.
 
-**Not yet:** `parsers/tileset.py` (per ADR-0004 stage 1), typed event dataclasses (deferred until mutation tools land), `parsers/metatiles.py`, `parsers/attributes.py`, all tools, and the full fixture pokeemerald project beyond inline-text test fixtures.
+**Not yet:** typed event dataclasses (deferred until mutation tools land), `parsers/metatiles.py`, `parsers/attributes.py`, all tools, and the full fixture pokeemerald project beyond inline-text test fixtures.
 
-**Verified locally:** `pytest` → 161 passed; `ruff check .` → clean; `ruff format --check .` → clean; `mypy --strict src/porymap_mcp` → clean on 12 source files.
+**Verified locally:** `pytest` → 182 passed; `ruff check .` → clean; `ruff format --check .` → clean; `mypy --strict src/porymap_mcp` → clean on 13 source files.
 
 ---
 
@@ -43,7 +43,7 @@ We are writing production code from day one. The phase ships when all L1 tools w
 | Phase | Goal | Status | Next action |
 |-------|------|--------|-------------|
 | 1 — Spec | Finalize tool surface, formats, scope of L1 | ✅ Closed | — |
-| 2 — L1 (Filesystem) | MCP server that edits map files without Porymap running | In progress | Implement `parsers/tileset.py` (ADR-0004 stage 1: filesystem glob), then build the discovery tools (`get_project_info`, `list_maps`, `get_map_info`, `list_tilesets`, `list_metatiles`, `list_events`) on top of `Project`. |
+| 2 — L1 (Filesystem) | MCP server that edits map files without Porymap running | In progress | Consult `mcp-tool-designer` on the L1 discovery tool signatures, then build the discovery tools (`get_project_info`, `list_maps`, `get_map_info`, `list_tilesets`, `list_metatiles`, `list_events`) directly on top of `Project`. Parser layer is complete. |
 | 3 — L2 (Live Porymap) | Porymap hot-reloads as the agent edits | Not started | Wait for Phase 2 ship |
 | 4 — L3 (Vision) | Server renders maps to PNG | Not started | Wait for Phase 3 ship |
 | 5 — Release | Publish to PyPI + community announcement | Not started | Wait for Phase 4 ship |

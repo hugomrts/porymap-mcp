@@ -253,6 +253,75 @@ class TestMapGroups:
         ) == MAP_GROUPS_JSON
 
 
+# --- Tilesets (ADR-0004 stage 1) -----------------------------------------
+
+
+class TestTilesets:
+    def _add_tileset(self, root: Path, kind: str, name: str) -> None:
+        directory = root / "data" / "tilesets" / kind / name
+        directory.mkdir(parents=True)
+        (directory / "tiles.png").touch()
+        (directory / "metatiles.bin").touch()
+        (directory / "metatile_attributes.bin").touch()
+        (directory / "palettes").mkdir()
+
+    def test_empty_project_yields_no_tilesets(self, tmp_path: Path) -> None:
+        # Project without any data/tilesets/ subtree at all.
+        _write(tmp_path / "porymap.project.cfg", MIN_CFG)
+        proj = Project(tmp_path)
+        assert proj.tilesets == ()
+
+    def test_discovers_primary_and_secondary(self, tmp_path: Path) -> None:
+        _write(tmp_path / "porymap.project.cfg", MIN_CFG)
+        self._add_tileset(tmp_path, "primary", "general")
+        self._add_tileset(tmp_path, "secondary", "petalburg_woods")
+        proj = Project(tmp_path)
+        result = proj.tilesets
+        assert len(result) == 2
+        kinds = {(e.kind, e.name) for e in result}
+        assert kinds == {("primary", "general"), ("secondary", "petalburg_woods")}
+
+    def test_cached_across_accesses(self, tmp_path: Path) -> None:
+        _write(tmp_path / "porymap.project.cfg", MIN_CFG)
+        self._add_tileset(tmp_path, "primary", "general")
+        proj = Project(tmp_path)
+        first = proj.tilesets
+        # Add a new tileset after the first read — the cached result
+        # should not see it (contract: a Project is a frozen view).
+        self._add_tileset(tmp_path, "primary", "later")
+        second = proj.tilesets
+        assert first is second
+
+    def test_get_tileset_by_label(self, tmp_path: Path) -> None:
+        _write(tmp_path / "porymap.project.cfg", MIN_CFG)
+        self._add_tileset(tmp_path, "primary", "general")
+        self._add_tileset(tmp_path, "secondary", "petalburg_woods")
+        proj = Project(tmp_path)
+        entry = proj.get_tileset_by_label("gTileset_PetalburgWoods")
+        assert entry.name == "petalburg_woods"
+        assert entry.kind == "secondary"
+
+    def test_get_tileset_by_label_not_found(self, tmp_path: Path) -> None:
+        _write(tmp_path / "porymap.project.cfg", MIN_CFG)
+        self._add_tileset(tmp_path, "primary", "general")
+        proj = Project(tmp_path)
+        with pytest.raises(ProjectError, match="gTileset_Missing"):
+            proj.get_tileset_by_label("gTileset_Missing")
+
+    def test_get_tileset_by_name(self, tmp_path: Path) -> None:
+        _write(tmp_path / "porymap.project.cfg", MIN_CFG)
+        self._add_tileset(tmp_path, "secondary", "house")
+        proj = Project(tmp_path)
+        entry = proj.get_tileset_by_name("house")
+        assert entry.c_label == "gTileset_House"
+
+    def test_get_tileset_by_name_not_found(self, tmp_path: Path) -> None:
+        _write(tmp_path / "porymap.project.cfg", MIN_CFG)
+        proj = Project(tmp_path)
+        with pytest.raises(ProjectError, match="tileset not found by name"):
+            proj.get_tileset_by_name("nope")
+
+
 # --- Map / border binary I/O ---------------------------------------------
 
 

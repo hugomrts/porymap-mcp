@@ -25,7 +25,7 @@ from typing import Final
 
 from porymap_mcp._atomic import write_atomic, write_atomic_text
 from porymap_mcp.errors import ProjectError, UnsupportedBaseGameError
-from porymap_mcp.parsers import layoutsjson, mapbin, mapgroups, projectconfig
+from porymap_mcp.parsers import layoutsjson, mapbin, mapgroups, projectconfig, tileset
 from porymap_mcp.parsers.layoutsjson import LayoutEntry, LayoutsJson
 from porymap_mcp.parsers.mapbin import MapBin
 from porymap_mcp.parsers.mapgroups import MapGroups
@@ -33,6 +33,7 @@ from porymap_mcp.parsers.projectconfig import (
     SUPPORTED_BASE_GAME_VERSIONS,
     ProjectConfig,
 )
+from porymap_mcp.parsers.tileset import TilesetEntry
 
 #: Default project-relative paths for the three index files. These match
 #: Porymap's defaults; user-overridable ``path/*`` keys in
@@ -57,6 +58,7 @@ class Project:
         self._config: ProjectConfig | None = None
         self._layouts: LayoutsJson | None = None
         self._map_groups: MapGroups | None = None
+        self._tilesets: tuple[TilesetEntry, ...] | None = None
 
     # --- Filesystem helpers --------------------------------------------
 
@@ -196,6 +198,46 @@ class Project:
             raise ProjectError("save_map_groups() called before map_groups were loaded or set")
         self.map_groups_json_path.parent.mkdir(parents=True, exist_ok=True)
         write_atomic_text(self.map_groups_json_path, mapgroups.write(self._map_groups))
+
+    # --- Tilesets ------------------------------------------------------
+
+    @property
+    def tilesets(self) -> tuple[TilesetEntry, ...]:
+        """Lazy-loaded tileset discovery (per ADR-0004 stage 1).
+
+        Walks ``data/tilesets/{primary,secondary}/`` once per
+        :class:`Project` instance and caches the result. Each entry's
+        ``c_label`` is unverified — see :class:`TilesetEntry`.
+        """
+        if self._tilesets is None:
+            self._tilesets = tileset.discover_tilesets(self._root)
+        return self._tilesets
+
+    def get_tileset_by_label(self, c_label: str) -> TilesetEntry:
+        """Return the tileset whose derived ``c_label`` matches.
+
+        Useful for resolving ``layouts.json``'s ``primary_tileset`` /
+        ``secondary_tileset`` (which are C symbol names) back to a
+        filesystem entry. Raises :class:`ProjectError` if no match is
+        found — note the convention may legitimately fail to match
+        custom forks; ADR-0004 stage 2 will replace this lookup with
+        the verified mapping from ``headers.h``.
+        """
+        for entry in self.tilesets:
+            if entry.c_label == c_label:
+                return entry
+        raise ProjectError(
+            f"tileset not found by C label: {c_label!r} "
+            "(stage-1 discovery uses the snake_case → gTileset_PascalCase "
+            "convention; a non-conforming fork may need ADR-0004 stage 2)"
+        )
+
+    def get_tileset_by_name(self, name: str) -> TilesetEntry:
+        """Return the tileset whose directory basename matches ``name``."""
+        for entry in self.tilesets:
+            if entry.name == name:
+                return entry
+        raise ProjectError(f"tileset not found by name: {name!r}")
 
     # --- Map binary I/O -----------------------------------------------
 

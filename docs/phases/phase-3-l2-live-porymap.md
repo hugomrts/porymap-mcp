@@ -1,8 +1,8 @@
 # Phase 3 — L2: Live Porymap
 
-> **Status:** Not started (blocked on Phase 2 ship)
-> **Estimated effort:** 2–3 days
-> **Closes when:** Porymap, open in parallel, reloads automatically as the agent edits, with no human action.
+> **Status:** Abandoned (see [ADR-0009](../decisions/0009-abandon-l2-live-porymap.md))
+> **Outcome:** No phase-3 release. `v0.2.0` is intentionally skipped. The roadmap goes `v0.1.0` (L1) → `v1.0.0` (L3).
+> **Why:** Porymap upstream does not expose the primitives a non-modal, autonomous bridge would need (no JS file-read, no `map.reload`, native watcher excludes `map.bin` / `map.json`). L3 (Vision) makes "watch the agent live in Porymap" strategically redundant: the agent will see its own renders inline in the conversation, without Porymap needing to be open. The investigation below stands as a record so a future contributor knows what was tried and why it was dropped.
 
 ---
 
@@ -101,7 +101,20 @@ The fixture project gains a `.porymap-mcp/` directory with the bridge's trigger 
 
 ## 8. Session log
 
-*(empty — phase not started)*
+### 2026-05-13 — Phase 3 abandoned (ADR-0009)
+
+Investigated the L2 design space against Porymap master before writing any code. Two static-source audits established the blocking facts:
+
+1. **Porymap's `QFileSystemWatcher` deliberately excludes the files this server mutates.** `src/project/project.cpp` watches index files (`layouts.json`, `map_groups.json`, `region_map_entries.json`, `wild_encounters.json`), tileset *headers*, and a few constants headers. It does **not** watch `data/maps/<MAP>/map.json` (excluded post-6.0.0 to avoid OS handle exhaustion), `data/layouts/<LAYOUT>/map.bin`, `border.bin`, or `metatile_attributes.bin`. When a watch does fire, the UX is a project-wide modal *"The file %1 has changed on disk. Would you like to reload the project?"* — not "no human action".
+2. **Porymap's JS scripting engine is a bare `QJSEngine` + `ConsoleExtension`** (`src/scriptapi/scripting.cpp:42`). A complete enumeration of every `Q_INVOKABLE` exposed to JS (across `include/scriptutility.h`, `include/ui/mapview.h`, `src/scriptapi/apimap.cpp`, `apioverlay.cpp`, `apiutility.cpp`) confirms: no `readFile`, no `fileExists`, no `stat`/`lastModified`, no `XMLHttpRequest` (QML-only, unavailable), no socket bindings, no `map.reload()` / `project.reload()` / `reloadMap()`. The only path-aware call (`overlay.addImage`) returns `void` to JS, so it cannot be used as a side-channel either.
+3. **WSL2 + Windows Porymap is our worst-case host**, and Qt's `QFileSystemWatcher` is least reliable across `\\wsl$\` 9P paths — exactly where users will run us.
+
+Implication: a sentinel-file bridge script is impossible (the script cannot read disk to detect updates); Porymap's native watcher does not cover the right files; the only mechanically-feasible workaround (touching `layouts.json` after every mutation to force the modal reload prompt) trades a quiet UX for a worse one and produces zero reusable value once L3 ships. The owner chose to abandon Phase 3 entirely and pivot to Phase 4 (L3 — Vision). See ADR-0009 for the full rationale, the four rejected alternatives (narrowed L2, upstream PR, PyPI-first, Porymap fork), and consequences. Phase 4 doc is now active; STATUS.md updated accordingly.
+
+Sources audited:
+- `huderlem/porymap` master: `src/project/project.cpp`, `src/scriptapi/scripting.cpp`, `src/scriptapi/apioverlay.cpp`, `src/scriptapi/apiutility.cpp`, `src/scriptapi/apimap.cpp`, `include/scriptutility.h`, `include/ui/mapview.h`, `include/scripting.h`, `CHANGELOG.md`.
+- Rendered docs: https://huderlem.github.io/porymap/manual/scripting-capabilities.html.
+- Qt `QFileSystemWatcher` behaviour over network mounts (Qt Forum / Qt Centre threads), WSL inotify limitations on DrvFs.
 
 ---
 

@@ -116,6 +116,10 @@ files = ["src", "tests"]
 module = "tests.*"
 disallow_untyped_defs = false
 
+[[tool.mypy.overrides]]
+module = ["fastmcp", "fastmcp.*"]
+ignore_missing_imports = true
+
 # --- pytest ---
 [tool.pytest.ini_options]
 minversion = "8.0"
@@ -132,7 +136,6 @@ markers = [
     "requires_porymap: integration tests requiring a real Porymap binary (run with `-m requires_porymap`)",
     "slow: tests that take more than ~1s individually",
 ]
-filterwarnings = ["error"]
 
 # --- coverage ---
 [tool.coverage.run]

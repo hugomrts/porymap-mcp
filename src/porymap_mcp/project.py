@@ -361,3 +361,55 @@ class Project:
         target = self.resolve_path(entry.blockdata_filepath)
         target.parent.mkdir(parents=True, exist_ok=True)
         write_atomic(target, mapbin.write(layout))
+
+    def write_border_bin(self, layout_id: str, border: MapBin) -> None:
+        """Atomically write a layout's ``border.bin``.
+
+        Validates ``border``'s dimensions against the layout entry's
+        declared border size (or the canonical 2x2 default when
+        ``use_custom_border_size=0``).
+        """
+        entry = self.get_layout(layout_id)
+        if entry.border_width is not None and entry.border_height is not None:
+            expected_width, expected_height = entry.border_width, entry.border_height
+        else:
+            expected_width, expected_height = DEFAULT_BORDER_SIZE
+        if (expected_width, expected_height) != (border.width, border.height):
+            raise ProjectError(
+                f"layout {layout_id!r}: border dimension mismatch — "
+                f"expected {expected_width}x{expected_height}, "
+                f"MapBin is {border.width}x{border.height}"
+            )
+        target = self.resolve_path(entry.border_filepath)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        write_atomic(target, mapbin.write(border))
+
+    # --- Map discovery on disk ----------------------------------------
+
+    def find_bare_by_map_id(self, map_name: str) -> str | None:
+        """Scan ``data/maps/*/map.json`` for a file with ``id == map_name``.
+
+        Unlike :meth:`get_map_entry`, this does **not** require the map
+        to be registered in ``map_groups.json`` — it walks the filesystem
+        directly. Used by ``register_map`` (which exists precisely to
+        attach an unregistered on-disk map to a group).
+
+        Returns the bare directory name (e.g. ``"NewTown"``) on a match,
+        ``None`` if no map.json on disk declares that id.
+        """
+        if not self.maps_dir.is_dir():
+            return None
+        for child in sorted(self.maps_dir.iterdir(), key=lambda p: p.name):
+            if not child.is_dir():
+                continue
+            map_json_path = child / "map.json"
+            if not map_json_path.is_file():
+                continue
+            try:
+                text = map_json_path.read_text(encoding="utf-8")
+                doc = mapjson.read(text)
+            except (OSError, ProjectError):
+                continue
+            if doc.id == map_name:
+                return child.name
+        return None

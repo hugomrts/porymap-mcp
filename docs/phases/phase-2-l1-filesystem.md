@@ -168,7 +168,7 @@ Recommended order — each step ends with passing tests:
 2. **Day 1.5 — Project class + errors + atomic writes.** Foundation for tools.
    - [x] `errors.py`
    - [x] `_atomic.py`
-   - [ ] `project.py` (`Project` class — lazy loader, config detection)
+   - [x] `project.py` (`Project` class — lazy loader, config detection)
 3. **Day 2 — Discovery tools.** `get_project_info`, `list_maps`, `get_map_info`, `list_tilesets`, `list_metatiles`, `list_events`. Use `mcp-tool-designer` to review signatures before coding.
 4. **Day 2 — Simple mutation tools.** `paint_metatile`, `paint_rectangle`, `flood_fill`, `set_border`.
 5. **Day 2.5 — Create/resize.** `create_map`, `resize_map`, `register_map`, `unregister_map`.
@@ -215,11 +215,28 @@ Recommended order — each step ends with passing tests:
 - Errors: added `MapGroupsFormatError` subclass of `FormatError`.
 - Tests: `tests/unit/parsers/test_mapgroups.py` — 22 cases covering read, write, round-trip, malformed input, null/empty rejection, custom-key preservation, and the group-order-vs-dict-order writer invariant. Full suite: 93 / 93 passing locally. `mypy --strict` clean on 10 source files; `ruff` clean.
 
+### 2026-05-13 (even later) — Project class + tileset-headers pivot
+- Asked the `porymap-format-expert` agent for the spec of `data/tilesets/headers.json`. **Premise was wrong** — tileset metadata lives in C, not JSON: `src/data/tilesets/headers.h` contains `const struct Tileset gTileset_* = { ... };` definitions, parsed by Porymap via `Project::readTilesetLabels` → `parser.readCStructs(...)` with FRLG-vs-Emerald field-order differences and `.inc` ASM fallbacks for old projects. **Decision deferred** — this is a non-reversible architecture choice (write a small C-struct lexer? add `parsers/tileset.py` as in CLAUDE.md §2?). Next session must write an ADR before touching tilesets.
+- Pivoted to the **`Project` class** since the four parsers we have are enough to back most of it. `src/porymap_mcp/project.py`:
+  - Constructor validates root is a directory.
+  - Lazy-loads `porymap.project.cfg`, `data/layouts/layouts.json`, `data/maps/map_groups.json` on first property access; caches them.
+  - Validates `base_game_version` against `SUPPORTED_BASE_GAME_VERSIONS` on first config load (raises `UnsupportedBaseGameError` otherwise).
+  - Atomic writers: `save_config` / `save_layouts` / `save_map_groups`. Each `mkdir(parents=True, exist_ok=True)` before calling through `_atomic.write_atomic_text`.
+  - Setters (`@config.setter`, etc.) for create-from-scratch flows where you set then save.
+  - Layout helpers: `get_layout(id)`, `list_layout_ids()`.
+  - Map-group helpers: `list_map_names()`, `group_of(map_name)`.
+  - `read_map_bin(id)` / `read_border_bin(id)` / `write_map_bin(id, MapBin)` tying `mapbin.read` / `mapbin.write` to the dimensions declared in `layouts.json`. `write_map_bin` rejects dimension mismatch — silently writing a differently-sized blob would corrupt the project.
+  - Border size: respects layout-entry `border_width`/`border_height` when present, else falls back to the canonical 2×2.
+  - `resolve_path()` translates POSIX-relative paths from JSON to absolute `Path`s.
+- Tests: `tests/unit/test_project.py` — 32 cases covering construction, path helpers, config loading + lazy-cache invariant + base-game validation + setter/save flow, layouts loading + lookup + round-trip save, map-groups listing + group lookup + round-trip save, and map.bin / border.bin I/O including custom-border-size and dimension-mismatch rejection. Full suite: **125 / 125 passing locally**. `mypy --strict` clean across 11 source files; `ruff` clean.
+
 ### Next session pickup
-- Add `parsers/mapjson.py` (events, header metadata, connections). Largest format remaining; consider splitting events vs header parsing.
-- Add `parsers/tilesetheaders.py` (read-only for now — feeds discovery tools).
-- Then `parsers/metatiles.py` + `parsers/attributes.py` (base-game-version branched — branch on `block_*_mask` and `metatile_*_mask` from the project config, *not* on `base_game_version` directly, per the format-expert spec).
-- Once `mapjson` lands, start `project.py` (`Project` class — lazy loader, config detection) to tie everything together.
+- **ADR-0003** to write: tileset-metadata representation. Options: write a minimal C-struct lexer; depend on a Porymap-touched project so the JSON-ish metadata Porymap caches in `porymap.user.cfg` is trusted; defer tileset awareness to L3. Pick one before touching any tileset code.
+- After the ADR, the next parsers are:
+  - `parsers/mapjson.py` (events + header metadata + connections). The biggest remaining format. Splitting events vs header parsing is recommended (could land across two sessions).
+  - `parsers/tileset.py` (per ADR-0003 direction).
+  - `parsers/metatiles.py` + `parsers/attributes.py` (branch on `block_*_mask` / `metatile_*_mask` from the config, **not** on `base_game_version` directly).
+- Once `mapjson` lands, the discovery tools (`list_maps`, `get_map_info`, `list_events`) can be built on top of `Project` immediately — they need very little beyond what's already there.
 
 ---
 

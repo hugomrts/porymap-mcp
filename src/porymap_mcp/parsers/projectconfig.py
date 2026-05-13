@@ -46,6 +46,15 @@ _DEFAULT_METATILE_TERRAIN_TYPE_MASK: Final = 0x3E00
 _DEFAULT_METATILE_ENCOUNTER_TYPE_MASK: Final = 0xC000
 _DEFAULT_METATILE_LAYER_TYPE_MASK: Final = 0x6000
 
+# Renderer-relevant defaults (see ADR-0010).
+#
+# Porymap's ``unusedTileNormal/Covered/Split`` default to 0 in
+# ``Tileset::loadProject`` when the key is absent (``src/config.cpp:1375-1377``,
+# ``Util::toHexString`` writer + ``getConfigUint32(key, value, 0, ...)`` reader).
+# These are tile IDs (uint16, 10 bits used) — the renderer fills the "missing"
+# layer of a dual-layer metatile with this tile per ADR-0010's composition table.
+_DEFAULT_UNUSED_TILE_ID: Final = 0
+
 
 @dataclass(slots=True)
 class ProjectConfig:
@@ -131,6 +140,47 @@ class ProjectConfig:
     def metatile_layer_type_mask(self) -> int:
         return self._hex_or_default("metatile_layer_type_mask", _DEFAULT_METATILE_LAYER_TYPE_MASK)
 
+    # --- Renderer-relevant accessors (ADR-0010) --------------------------
+
+    @property
+    def transparency_color(self) -> int | None:
+        """RGB color used as the transparency fill for the metatile renderer.
+
+        Porymap serializes this as a 6-digit ``RRGGBB`` hex string with **no**
+        ``#`` prefix (``#`` is the project.cfg comment marker; see
+        ``KeyValueConfigBase::toConfigColor`` in ``porymap/src/config.cpp``).
+
+        Returns the 24-bit RGB value packed into an ``int`` (``0x00RRGGBB``)
+        when set, or ``None`` when the key is absent or its value is the empty
+        string. Porymap maps the empty case to ``QColor()`` (invalid) and the
+        renderer treats that as "use palette 0 colour 0".
+        """
+        raw = self.entries.get("transparency_color")
+        if raw is None:
+            return None
+        s = raw.strip()
+        if not s:
+            return None
+        return _parse_rgb(s, "transparency_color")
+
+    @property
+    def unused_tile_normal(self) -> int:
+        """Tile ID used to fill the missing bottom layer when ``LayerType``
+        is ``Normal`` (dual-layer metatiles only). See ADR-0010."""
+        return self._hex_or_default("unused_tile_normal", _DEFAULT_UNUSED_TILE_ID)
+
+    @property
+    def unused_tile_covered(self) -> int:
+        """Tile ID used to fill the missing top layer when ``LayerType`` is
+        ``Covered`` (dual-layer metatiles only). See ADR-0010."""
+        return self._hex_or_default("unused_tile_covered", _DEFAULT_UNUSED_TILE_ID)
+
+    @property
+    def unused_tile_split(self) -> int:
+        """Tile ID used to fill the missing middle layer when ``LayerType``
+        is ``Split`` (dual-layer metatiles only). See ADR-0010."""
+        return self._hex_or_default("unused_tile_split", _DEFAULT_UNUSED_TILE_ID)
+
     def _hex_or_default(self, key: str, default: int) -> int:
         value = self.entries.get(key)
         if value is None:
@@ -167,6 +217,21 @@ def _parse_hex(value: str, key: str) -> int:
         return int(s, 16)
     except ValueError as exc:
         raise ProjectConfigFormatError(f"key {key!r}: invalid hex value {value!r}") from exc
+
+
+def _parse_rgb(value: str, key: str) -> int:
+    """Parse a 6-digit ``RRGGBB`` hex colour (no ``#`` prefix) into a 24-bit int.
+
+    Empty input is handled by the caller (Porymap maps empty → invalid QColor).
+    Anything other than exactly 6 hex digits raises — this matches CLAUDE.md's
+    "fail fast on malformed project files" rule.
+    """
+    s = value.strip()
+    if len(s) != 6 or not all(c in "0123456789abcdefABCDEF" for c in s):
+        raise ProjectConfigFormatError(
+            f"key {key!r}: expected 6-digit RGB hex 'RRGGBB' (no '#'), got {value!r}"
+        )
+    return int(s, 16)
 
 
 # --- Top-level read / write ------------------------------------------------

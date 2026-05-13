@@ -6,6 +6,36 @@
 
 ---
 
+## 0. Session start & end protocol
+
+This project is designed to be advanced across **many independent Claude Code sessions**, possibly weeks apart. To make that work, every session follows a strict open/close protocol.
+
+### At session start (always, in order)
+
+1. Read [`STATUS.md`](STATUS.md) — 1-page snapshot of the current state.
+2. Read the **current phase doc** linked from `STATUS.md` (under "Current phase").
+3. Scan `STATUS.md`'s "Open decisions" — if your task touches one, you must resolve it (write an ADR) before proceeding.
+4. Skim `docs/decisions/README.md` for any ADR that may apply to your task. Treat accepted ADRs as binding.
+5. Only then start work.
+
+### During the session
+
+- When you make a decision that is hard to reverse (framework choice, file format, API contract), **write an ADR** in `docs/decisions/` using `0000-template.md`. Don't bury the decision in code.
+- When you check off a sub-task, do it in the phase doc — don't keep it in your head.
+- If you discover a new sub-task, add it to the phase doc with `[ ]` so the next session sees it.
+
+### At session end (always, in order)
+
+1. Update the phase doc's task checklist (check completed items, add discovered ones).
+2. Add a one-paragraph entry to the phase doc's "Session log" section: date, what was done, what remains.
+3. Update `STATUS.md`: "Last updated" date, "Last session" line, any phase status changes, any new open decision.
+4. If a non-reversible decision was taken, ensure the ADR is written and the index in `docs/decisions/README.md` is updated.
+5. **Commit `STATUS.md` + phase doc + ADR(s) together**. Never split them — they tell one story.
+
+Anything not captured in these three documents (`STATUS.md`, phase doc, ADR) is lost between sessions. Treat them as the project's memory.
+
+---
+
 ## 1. What this project is
 
 `porymap-mcp` is a [Model Context Protocol](https://modelcontextprotocol.io) server that lets an AI agent (Claude or any MCP client) author Pokémon Gen-3 decompilation maps — the same files [Porymap](https://github.com/huderlem/porymap) edits graphically — without needing Porymap to be open.
@@ -236,8 +266,6 @@ For deeper reference, the [Porymap manual](https://huderlem.github.io/porymap/) 
 
 ## 11. Current status snapshot
 
-- **Branch model:** `main` exists with only the strategic doc; this Claude environment lives on the working branch.
-- **Phase:** 0 (spec & env setup). Phase 2 (L1 implementation) is the next code milestone.
-- **Open POC question:** still need to confirm the exact `.bin` byte layout for collision/elevation on `pokeemerald-expansion`'s tileset format. The `porymap-format-expert` agent should be the one to verify when we start parsing.
+For the live snapshot, read [`STATUS.md`](STATUS.md). It supersedes this section.
 
-Keep this section honest — update it as phases close.
+This file (`CLAUDE.md`) is the *operating manual* — it should rarely change. `STATUS.md` is the *state* — it changes every session. Don't mix them.

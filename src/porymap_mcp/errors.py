@@ -47,6 +47,10 @@ class LayoutsJsonFormatError(FormatError):
     """``data/layouts/layouts.json`` had malformed content."""
 
 
+class MapGroupsFormatError(FormatError):
+    """``data/maps/map_groups.json`` had malformed content."""
+
+
 class MapNotFoundError(ProjectError):
     """Referenced map name does not exist in the project."""
 

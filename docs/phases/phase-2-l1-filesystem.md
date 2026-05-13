@@ -160,7 +160,7 @@ Recommended order — each step ends with passing tests:
    - [x] `parsers/mapbin.py` (also covers `border.bin`)
    - [x] `parsers/projectconfig.py`
    - [x] `parsers/layoutsjson.py`
-   - [ ] `parsers/mapgroups.py`
+   - [x] `parsers/mapgroups.py`
    - [ ] `parsers/mapjson.py`
    - [ ] `parsers/tilesetheaders.py`
    - [ ] `parsers/metatiles.py`
@@ -209,12 +209,17 @@ Recommended order — each step ends with passing tests:
 - Errors: added `ProjectConfigFormatError` and `LayoutsJsonFormatError` subclasses of `FormatError`.
 - Tests: `tests/unit/parsers/test_projectconfig.py` (22 cases) + `tests/unit/parsers/test_layoutsjson.py` (27 cases) covering read, write, round-trip, malformed input, key-ordering invariants, conditional border emission, and `bool`-as-`int` rejection. Full suite: 71 / 71 passing locally. `mypy --strict` clean on 9 source files; `ruff` clean across `src/` and `tests/`.
 
+### 2026-05-13 (later) — Parser: mapgroups
+- Used `porymap-format-expert` to confirm the top-level key is **`group_order`** (not `group_names`) and that map-name entries are bare names like `"LittlerootTown"`, not `MAP_*` constants. Group symbols are `gMapGroup_*` C identifiers.
+- **`parsers/mapgroups.py`** — pure read/write of `data/maps/map_groups.json`. `MapGroups` dataclass stores `group_order: tuple[str, ...]`, `groups: dict[str, tuple[str, ...]]`, and `custom: dict[str, object]` for Porymap's `customMapGroupsData` round-trip. Writer emits `group_order` first, then each group in `group_order` order (not dict insertion order), then preserved custom keys. Missing groups in the dict are emitted as `[]` to match Porymap's "missing key = empty group" behavior.
+- Errors: added `MapGroupsFormatError` subclass of `FormatError`.
+- Tests: `tests/unit/parsers/test_mapgroups.py` — 22 cases covering read, write, round-trip, malformed input, null/empty rejection, custom-key preservation, and the group-order-vs-dict-order writer invariant. Full suite: 93 / 93 passing locally. `mypy --strict` clean on 10 source files; `ruff` clean.
+
 ### Next session pickup
-- Add `parsers/mapgroups.py` (small JSON: `group_names` + a list per group). Brief format-expert ping advised for the exact key shape on disk.
 - Add `parsers/mapjson.py` (events, header metadata, connections). Largest format remaining; consider splitting events vs header parsing.
 - Add `parsers/tilesetheaders.py` (read-only for now — feeds discovery tools).
 - Then `parsers/metatiles.py` + `parsers/attributes.py` (base-game-version branched — branch on `block_*_mask` and `metatile_*_mask` from the project config, *not* on `base_game_version` directly, per the format-expert spec).
-- Once `mapgroups` + `mapjson` land, start `project.py` (`Project` class — lazy loader, config detection) to tie everything together.
+- Once `mapjson` lands, start `project.py` (`Project` class — lazy loader, config detection) to tie everything together.
 
 ---
 

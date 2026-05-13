@@ -1,8 +1,8 @@
 # Phase 2 — L1: Filesystem MCP
 
-> **Status:** Not started (blocked on Phase 1 close)
-> **Estimated effort:** 2–3 days
-> **Closes when:** an MCP client can create and edit a real pokeemerald map end-to-end, and a human opens it in Porymap to confirm.
+> **Status:** ✅ Closed (v0.1.0 tagged 2026-05-13)
+> **Estimated effort:** 2–3 days (actual: ~3 days of focused sessions)
+> **Closes when:** ~~an MCP client can create and edit a real pokeemerald map end-to-end, and a human opens it in Porymap to confirm.~~ — done; see session log.
 
 ---
 
@@ -250,6 +250,16 @@ Recommended order — each step ends with passing tests:
 - **`project.py`** — `Project(root)` with lazy properties (`config`, `layouts`, `map_groups`), atomic `save_*`, `get_layout` / `list_layout_ids` / `list_map_names` / `group_of` helpers, and `read_map_bin` / `write_map_bin` that enforce layout-declared dimensions against the on-disk blob.
 - Errors: `ProjectConfigFormatError`, `LayoutsJsonFormatError`, `MapGroupsFormatError` added.
 - Tests: 22 (projectconfig) + 27 (layoutsjson) + 22 (mapgroups) + 32 (project) = 103 from the orphan branch, all preserved. Repo total: **125 passing**, `mypy --strict` clean on 11 source files, `ruff` clean.
+
+### 2026-05-13 — Phase 2 closed: integration-tested + interop fixes + v0.1.0 tag
+- **End-to-end integration test passed against `rh-hideout/pokeemerald-expansion` opened in Porymap (Windows).** Setup: WSL2 Ubuntu + Claude Code CLI + Porymap on Windows reading WSL paths via `\\wsl.localhost\Ubuntu-24.04\...`. The agent chain `get_project_info` → `list_tilesets` → `create_map` → `paint_rectangle` → `add_sign` → `get_map_info` produced `MAP_LAKESIDE_TOWN` (20×20), with `LakesideTown_EventScript_Sign_0` linked to a generated `scripts.inc` (pokeemerald-expansion has `use_poryscript=0`). Porymap loaded the map cleanly; the rectangle, the sign, and the script symbol all appeared in the GUI. Screenshot validation by the project owner confirmed visual correctness (a red 4×4 rectangle on green grass with a bottom-anchored sign).
+- **Two interop bugs surfaced during the test, fixed in PR #7:**
+  1. `mapjson._read_connections` rejected `"connections": 0` (an int), found in 60+ FRLG map.json files in pokeemerald-expansion. Now permissive on read — any non-list non-null value is treated as empty; the strict writer normalizes to `null` on next save.
+  2. `Project.find_bare_by_map_id` (used by `create_map` for duplicate detection) propagated `FormatError` from a single corrupt map.json elsewhere in the repo, blocking creation of *unrelated* maps. Now swallows `PorymapMCPError` and continues scanning.
+- **Quirks captured in `CLAUDE.md` of the user's downstream fork** (`pokeemerald-expansion` fork, not this server's repo): `gTileset_LittlerootTown` does not exist in pokeemerald-expansion; Littleroot Town uses `gTileset_General` + `gTileset_Petalburg`. Noted here so future sessions on `porymap-mcp` don't hardcode `gTileset_LittlerootTown` as a "safe default" example.
+- **Shipped:** `CHANGELOG.md` (first entry: v0.1.0 surface + the two fixes), 2 new tests in `test_mapjson.py` (permissive connections), 1 new test class in `test_project.py` (`TestFindBareByMapIdTolerance`). Repo total: **300 passing**, CI matrix green (Python 3.11–3.13 × Ubuntu/macOS) on all merged PRs.
+- **PRs merged to `main`:** #5 (L1 21 tools + ADRs 0005–0008), #6 (chore status post-merge), #7 (FRLG fixes + CHANGELOG).
+- **`v0.1.0` tag** published to https://github.com/hugomrts/porymap-mcp/releases/tag/v0.1.0.
 
 ### Tileset-headers pivot (deferred to ADR-0004)
 - The orphan session discovered that `data/tilesets/headers.json` **does not exist** — tileset metadata lives in C (`src/data/tilesets/headers.h` with `const struct Tileset gTileset_* = { ... };`), parsed by Porymap via `Project::readTilesetLabels` → `parser.readCStructs(...)`, with FRLG-vs-Emerald field-order differences and `.inc` ASM fallbacks for old projects. This is a non-reversible architecture decision: write a C-struct lexer in `parsers/tileset.py`? Lean on Porymap to maintain a JSON cache? Defer tileset awareness to L3? **Blocks** any tileset work. Numbered as **ADR-0004** because the orphan session's working name was "ADR-0003", which collided with the one already shipped.

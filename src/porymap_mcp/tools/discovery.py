@@ -33,7 +33,9 @@ from typing import TYPE_CHECKING, Any
 from porymap_mcp.errors import ProjectError
 from porymap_mcp.parsers.mapjson import MapJson
 from porymap_mcp.parsers.tileset import TilesetEntry
-from porymap_mcp.project import DEFAULT_BORDER_SIZE, Project
+from porymap_mcp.project import DEFAULT_BORDER_SIZE
+from porymap_mcp.tools._common import load_project as _load_project
+from porymap_mcp.tools._common import posix_str as _posix_str
 
 if TYPE_CHECKING:
     from fastmcp import FastMCP
@@ -46,25 +48,6 @@ if TYPE_CHECKING:
 #: ``parsers/metatiles.py`` lands and computes the size from
 #: ``ProjectConfig.enable_triple_layer_metatiles``.
 _METATILE_BYTES_DEFAULT: int = 16
-
-
-# --- Shared helpers --------------------------------------------------------
-
-
-def _load_project(project_path: str) -> Project:
-    """Normalize ``project_path`` and return a :class:`Project`.
-
-    Accepts absolute paths, ``~``-prefixed paths, and paths relative to
-    the MCP server's cwd. Raises :class:`ProjectError` if the resolved
-    path is not a directory.
-    """
-    resolved = Path(project_path).expanduser().resolve()
-    return Project(resolved)
-
-
-def _posix_str(path: Path) -> str:
-    """Return ``path`` as a POSIX-style absolute string."""
-    return path.as_posix()
 
 
 # --- 1. get_project_info ---------------------------------------------------

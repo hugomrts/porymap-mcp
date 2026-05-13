@@ -463,7 +463,7 @@ class TestRegister:
         mcp = build_server()
         tools = asyncio.run(mcp.list_tools())
         names = {t.name for t in tools}
-        assert names == {
+        assert {
             "get_project_info",
             "list_maps",
             "get_map_info",
@@ -471,4 +471,4 @@ class TestRegister:
             "list_metatiles",
             "list_prefabs",
             "list_events",
-        }
+        }.issubset(names)

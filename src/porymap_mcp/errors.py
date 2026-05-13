@@ -55,6 +55,16 @@ class MapJsonFormatError(FormatError):
     """``data/maps/<MAP>/map.json`` had malformed content."""
 
 
+class TilesPngFormatError(FormatError):
+    """A tileset's ``tiles.png`` did not match the 4-bpp / 8x8-tiled layout
+    Porymap expects (e.g. width/height not a multiple of 8, not indexed)."""
+
+
+class PaletteFormatError(FormatError):
+    """A tileset ``.pal`` file was not valid JASC-PAL (wrong header, wrong
+    declared colour count, or malformed RGB triple)."""
+
+
 class MapNotFoundError(ProjectError):
     """Referenced map name does not exist in the project."""
 

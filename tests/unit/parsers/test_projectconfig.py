@@ -28,6 +28,10 @@ metatile_layer_type_mask=0x6000
 block_metatile_id_mask=0x03FF
 block_collision_mask=0x0C00
 block_elevation_mask=0xF000
+transparency_color=FF00FF
+unused_tile_normal=0x1
+unused_tile_covered=0x2
+unused_tile_split=0x3
 """
 
 
@@ -46,13 +50,17 @@ class TestRead:
         assert cfg.metatile_terrain_type_mask == 0x3E00
         assert cfg.metatile_encounter_type_mask == 0xC000
         assert cfg.metatile_layer_type_mask == 0x6000
+        assert cfg.transparency_color == 0xFF00FF
+        assert cfg.unused_tile_normal == 0x1
+        assert cfg.unused_tile_covered == 0x2
+        assert cfg.unused_tile_split == 0x3
 
     def test_preserves_insertion_order(self) -> None:
         cfg = projectconfig.read(REF_CFG_TEXT)
         keys = list(cfg.entries.keys())
         assert keys[0] == "base_game_version"
         assert keys[1] == "use_poryscript"
-        assert keys[-1] == "block_elevation_mask"
+        assert keys[-1] == "unused_tile_split"
 
     def test_drops_comments_and_blank_lines(self) -> None:
         text = (
@@ -112,6 +120,12 @@ class TestTypedAccessors:
         assert cfg.block_metatile_id_mask == 0x03FF
         assert cfg.block_collision_mask == 0x0C00
         assert cfg.block_elevation_mask == 0xF000
+        # Renderer keys default to: no transparency override + tile 0 for all
+        # three "missing layer" slots (per ADR-0010 / Porymap config.cpp).
+        assert cfg.transparency_color is None
+        assert cfg.unused_tile_normal == 0
+        assert cfg.unused_tile_covered == 0
+        assert cfg.unused_tile_split == 0
 
     def test_bool_accepts_only_0_or_1(self) -> None:
         cfg = projectconfig.read("base_game_version=pokeemerald\nuse_poryscript=true\n")
@@ -133,6 +147,58 @@ class TestTypedAccessors:
         cfg = projectconfig.read("base_game_version=pokeemerald\nblock_metatile_id_mask=nope\n")
         with pytest.raises(ProjectConfigFormatError, match="block_metatile_id_mask"):
             _ = cfg.block_metatile_id_mask
+
+
+class TestRendererKeys:
+    """Renderer-relevant keys added in ADR-0010 for L3 (Vision)."""
+
+    def test_transparency_color_empty_value_is_none(self) -> None:
+        # Porymap's getConfigColor maps an empty value to QColor() (invalid);
+        # we expose that as None so the renderer falls back to palette 0 colour 0.
+        cfg = projectconfig.read("base_game_version=pokeemerald\ntransparency_color=\n")
+        assert cfg.transparency_color is None
+
+    def test_transparency_color_parses_rgb_hex_without_hash(self) -> None:
+        cfg = projectconfig.read("base_game_version=pokeemerald\ntransparency_color=ABCDEF\n")
+        assert cfg.transparency_color == 0xABCDEF
+
+    def test_transparency_color_accepts_lowercase_hex(self) -> None:
+        cfg = projectconfig.read("base_game_version=pokeemerald\ntransparency_color=abcdef\n")
+        assert cfg.transparency_color == 0xABCDEF
+
+    def test_transparency_color_rejects_wrong_length(self) -> None:
+        cfg = projectconfig.read("base_game_version=pokeemerald\ntransparency_color=FFF\n")
+        with pytest.raises(ProjectConfigFormatError, match="transparency_color"):
+            _ = cfg.transparency_color
+
+    def test_transparency_color_rejects_non_hex(self) -> None:
+        cfg = projectconfig.read("base_game_version=pokeemerald\ntransparency_color=ZZZZZZ\n")
+        with pytest.raises(ProjectConfigFormatError, match="transparency_color"):
+            _ = cfg.transparency_color
+
+    def test_transparency_color_rejects_hash_prefix(self) -> None:
+        # Porymap strips the '#' on write because '#' starts a comment line.
+        # A value still carrying '#' is malformed in this format.
+        cfg = projectconfig.read("base_game_version=pokeemerald\ntransparency_color=#FF00FF\n")
+        with pytest.raises(ProjectConfigFormatError, match="transparency_color"):
+            _ = cfg.transparency_color
+
+    def test_unused_tile_keys_parse_hex(self) -> None:
+        cfg = projectconfig.read(
+            "base_game_version=pokeemerald\n"
+            "unused_tile_normal=0x10\n"
+            "unused_tile_covered=0x20\n"
+            "unused_tile_split=0x3FF\n"
+        )
+        assert cfg.unused_tile_normal == 0x10
+        assert cfg.unused_tile_covered == 0x20
+        assert cfg.unused_tile_split == 0x3FF
+
+    def test_unused_tile_keys_default_to_zero(self) -> None:
+        cfg = projectconfig.read("base_game_version=pokeemerald\n")
+        assert cfg.unused_tile_normal == 0
+        assert cfg.unused_tile_covered == 0
+        assert cfg.unused_tile_split == 0
 
 
 class TestWrite:

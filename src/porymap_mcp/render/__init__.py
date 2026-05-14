@@ -19,13 +19,25 @@ from porymap_mcp.render.compose import (
     decode_palette_bank,
     decode_tile_bank,
 )
+from porymap_mcp.render.layout import (
+    METATILE_SIZE,
+    assemble,
+    assemble_region,
+    clip_region,
+    mapbin_to_metatile_grid,
+)
 
 __all__ = [
     "DUAL_LAYER_TILES_PER_METATILE",
+    "METATILE_SIZE",
     "PALETTE_SIZE",
     "TILE_SIZE",
     "TRIPLE_LAYER_TILES_PER_METATILE",
+    "assemble",
+    "assemble_region",
+    "clip_region",
     "decode_metatile_bank",
     "decode_palette_bank",
     "decode_tile_bank",
+    "mapbin_to_metatile_grid",
 ]

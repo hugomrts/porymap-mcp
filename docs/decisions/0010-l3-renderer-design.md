@@ -251,6 +251,34 @@ phases is the difference between getting *any* pixel right or *no*
 pixels right. Fix is one line — subtract the frame offset from the
 output coordinates before the modulo.
 
+### Correction 4 — `unused_tile_*` config keys are packed tile-entry words, not bare tile ids
+
+`render/compose.py::decode_metatile_bank` originally treated
+`unused_tile_normal`, `unused_tile_covered`, and `unused_tile_split`
+from the project config as raw `tile_id` integers, with palette
+hardcoded to 0 and no flips:
+
+    fill_normal = (unused_tile_normal, False, False, 0)  # WRONG
+
+This works for the vanilla pokeemerald default
+(`unused_tile_normal=0x0000`, which decodes the same way both wrong
+and right) but breaks the moment a fork or expansion sets a non-zero
+value with a non-zero palette. pokeemerald-expansion's
+`unused_tile_normal=0x3014` is a full packed tile-entry word with the
+exact same bit layout as a metatile's own entries (tile_id 0-9, xflip
+bit 10, yflip bit 11, palette 12-15). The "wrong" decode treats
+`0x3014` as `tile_id=12308`, which is well above the 1024-tile
+combined bank cap; the bottom-layer fill silently fell through the
+`if tid >= num_tiles: continue` guard and exposed the
+`transparency_color=0x000000` background. Only 2 pixels in
+`BattleFrontier_OutsideEast` (out of 1.8M) showed black where Porymap
+shows the grey of palette 3 indices 3 and 4 — the actual decoded
+`unused_tile_normal`.
+
+Fix: decode `unused_tile_*` via the same bit unpacking as a regular
+tile entry (one helper, three call sites). After the fix, case 04
+matches Porymap byte-for-byte (0/1805312 differing pixels).
+
 ### Correction 3 — Border frame is asymmetric (7 horizontal x 5 vertical metatiles), not 7x7
 
 §"Decision" doesn't pin the frame size, but `tools/rendering.py`

@@ -158,6 +158,71 @@ Goldens live under `tests/fixtures/renders/`. CI loads both PNGs, converts each 
 
 ## 9. Session log
 
+### 2026-05-14 — `render/encode.py` shipped (PNG encode + ToolResult packaging)
+
+Implementation slice 5. Added `src/porymap_mcp/render/encode.py`:
+
+- `encode_png(rgba, *, area_metatiles, force_rgba=False) -> (bytes, EncodingName)` — selects palette-vs-RGBA per ADR-0010 §"PNG encoding": palette mode iff `not force_rgba` AND `area_metatiles <= 4096` AND the image is fully opaque AND has ≤ 256 distinct RGB values. Falls back to RGBA cleanly on any of those conditions. `optimize=True` only when `area_metatiles <= 4096`.
+- Palette-mode encode is **lossless** by construction: `np.unique` over packed RGB → indexed image + custom palette. No Pillow quantization, no dithering. Verified by round-trip pytest assertions.
+- `package_render_result(png_bytes, *, summary, extra=None) -> ToolResult` — wraps PNG bytes into the canonical `ToolResult(content=[Image(data=, format="png").to_image_content()], structured_content={...})` shape from ADR-0010 §"MCP return shape". FastMCP types are late-imported inside the function to keep `porymap_mcp.render` import-time free of FastMCP. `summary` from the kwarg always wins over `extra["summary"]`.
+
+New error class `PngEncodeError` for the validation surface (wrong shape/dtype, zero dim, negative area).
+
+**+18 unit tests** under `tests/unit/render/test_encode.py` (suite: 383 → **401 passing**). Coverage:
+
+- Mode selection: small opaque → palette; `force_rgba=True` → RGBA; `area > 4096` → RGBA; `area == 4096` (exactly at threshold) → palette; >256 colours → RGBA; any non-opaque pixel → RGBA.
+- Round-trip lossless: palette path (3 colour blocks), RGBA path (>256 colours), solid-image palette, forced-RGBA.
+- Validation: wrong shape, 2D input, wrong dtype, zero dim, negative area.
+- `package_render_result`: returns `ToolResult` with `ImageContent` + `image/png` mime + base64 data that round-trips as PNG; `summary` kwarg overrides `extra["summary"]`; `extra=None` accepted.
+
+`ruff check` + `ruff format --check` + `mypy --strict src/porymap_mcp` (27 source files) + `pytest --no-cov` all clean.
+
+### 2026-05-14 — `render/layout.py` shipped (assembly slice)
+
+Implementation slice 4. Added `src/porymap_mcp/render/layout.py`:
+
+- `assemble(metatile_bank, metatile_grid) -> uint8[H*16, W*16, 4]` — pure-numpy paste. Single fancy-index over the flattened grid, then `reshape(H, W, 16, 16, 4).transpose(0, 2, 1, 3, 4).reshape(H*16, W*16, 4).copy()` interleaves the W and tile-pixel axes so adjacent metatiles end up adjacent in the output buffer. C-contiguous output for downstream Pillow encode.
+- `assemble_region(bank, grid, *, x1, y1, x2, y2)` — strict half-open slice in metatile units. Raises on degenerate/out-of-grid bounds.
+- `clip_region(grid_shape, x1, y1, x2, y2) -> (cx1, cy1, cx2, cy2)` — clamps a requested region to a grid's bounds; raises only when the clip collapses to empty (= caller asked for somewhere fully outside the grid). The tool layer composes `clip_region` + `assemble_region` when "render whatever fits" is the desired semantics.
+- `mapbin_to_metatile_grid(mb: MapBin) -> uint16[H, W]` — adapter that drops the per-tile collision/elevation fields; the full :class:`MapBin` stays available to overlay renderers.
+
+New error class `LayoutAssemblyError` (precondition failures: bank shape/dtype, grid shape/dtype, out-of-range IDs, region bounds).
+
+**+32 unit tests** under `tests/unit/render/test_layout.py` (suite: 351 → **383 passing**). Coverage:
+
+- `assemble`: single-cell grid, 2x3 grid pixel-by-pixel (origin top-left), metatile repetition, within-tile pixel order preserved (asymmetric metatile), C-contiguous output, accepts int32/int64/uint8/uint16 grid dtypes.
+- Validation: out-of-range ID, negative ID, non-integer dtype, 1D grid, empty grid, wrong bank shape/dtype, empty bank.
+- `assemble_region`: subgrid extraction, full-region equality with `assemble`, 1-cell region, 6 parametrized invalid-bounds cases (zero-width, zero-height, reversed bounds, negatives, beyond width, beyond height).
+- `clip_region`: in-bounds passthrough, right/bottom overrun, left/top underflow, full-engulf, fully-outside (left + bottom), degenerate input.
+- `mapbin_to_metatile_grid`: extracts metatile_id and drops collision/elevation; round-trip to `assemble`.
+
+`ruff check` + `ruff format --check` + `mypy --strict src/porymap_mcp` + `pytest --no-cov` all clean.
+
+Notes for the next slice:
+
+- **Border framing is NOT in this slice.** The `assemble`/`assemble_region` primitives already render a `border.bin` (it's a small `MapBin`), but the *tiling* that wraps a map with its border (Porymap's "include border" exporter mode) requires a small composition step — defer until `tools/rendering.py` actually wires `include_border=True`. ADR-0010 §"Layout assembly" says border follows the same pipeline; that's correct for rendering the 2x2 grid itself but not for the wrap-around frame.
+- **Performance.** The fancy-index + reshape path is a single C-level copy; bench should be sub-millisecond for 30x20 even on cold cache. Will measure once `tools/rendering.py` is in place.
+
+### 2026-05-14 — `compose.decode_metatile_bank` shipped (compose slice 2)
+
+Implementation slice 3 from the previous handoff. Added the metatile composer
+to `src/porymap_mcp/render/compose.py`:
+
+- `decode_metatile_bank(metatiles_bytes, attributes, tile_bank, palette_bank, *, layers, unused_tile_normal, unused_tile_covered, unused_tile_split, transparency_color)` returning `uint8[num_metatiles, 16, 16, 4]`.
+- Always composes 3 stacked layers per ADR-0010 §"Metatile composition": triple-layer mode reads all three from disk; dual-layer mode fills the missing layer from `unused_tile_*` based on the metatile's `LayerType` (Normal → bottom, Covered → top, Split → middle). Unknown `layer_type` values fall back to Normal — matches Porymap's switch-default in `src/ui/imageproviders.cpp`.
+- Tile entries unpack as `tile_id`=bits 0-9, `xflip`=bit 10, `yflip`=bit 11, `palette_num`=bits 12-15; xflip/yflip applied via numpy slice reversal.
+- Bottom-layer transparency: canvas pre-filled with `transparency_color` (GBA-quantized via `& 0xF8`) when set, else `palette[0][0]` RGB with alpha 255. Upper-layer palette-0 pixels stay alpha-0 from `decode_palette_bank`, so the background shows through correctly.
+- Out-of-range `tile_id` or `palette_num` are silently skipped — matches Porymap's behaviour when a metatile references a slot the loaded tilesets don't supply.
+- New error class: `MetatilesBinFormatError` (size not a multiple of 8×layers bytes, attribute-count mismatch, invalid `layers`).
+
+WebFetch'd Porymap's `imageproviders.cpp getMetatileImage()` to confirm: unused tiles render with palette 0 and no flips (bare `Tile(id)` ctor defaults); transparency_color falls back to palette 0 colour 0 when unset; index-0 alpha-zero is applied per tile.
+
+**+21 unit tests** under `tests/unit/render/test_compose.py` (total now 43 in this file, 351 in the suite). Coverage: each `LayerType` branch, triple-layer mode ignores `layer_type`, xflip + yflip + both, transparency_color set + quantized + fallback, layer z-order (top overrides bottom), 2×2 quad position mapping, all four validation paths, out-of-range tile/palette skipping, multiple-metatile decoding.
+
+`ruff check .` + `ruff format --check .` + `mypy --strict src/porymap_mcp` + `pytest --no-cov` all clean.
+
+**Next up** (unchanged from STATUS handoff): `render/layout.py` (W×H numpy assembly + border) → `render/encode.py` (palette-vs-RGBA + FastMCP `ToolResult` packaging) → `tools/rendering.py` registering `render_map`/`render_map_region`/`render_metatile` → `render/overlays.py` + bundled icons → `return_render` on L1 mutation tools → 5-map fidelity corpus → `examples/04_render_loop/` → `v1.0.0` tag.
+
 ### 2026-05-13 — Phase 4 opened, design locked in ADR-0010
 
 Per the L2-abandonment session (see Phase 3 session log + ADR-0009), the project pivoted directly to L3. This session ran two parallel static-source audits to populate ADR-0010:

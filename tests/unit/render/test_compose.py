@@ -13,10 +13,16 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from porymap_mcp.errors import PaletteFormatError, TilesPngFormatError
+from porymap_mcp.errors import (
+    MetatilesBinFormatError,
+    PaletteFormatError,
+    TilesPngFormatError,
+)
+from porymap_mcp.parsers.attributes import MetatileAttributes
 from porymap_mcp.render.compose import (
     PALETTE_SIZE,
     TILE_SIZE,
+    decode_metatile_bank,
     decode_palette_bank,
     decode_tile_bank,
 )
@@ -260,3 +266,465 @@ class TestDecodePaletteBank:
         bank = decode_palette_bank([pal])
         # CRLF should parse cleanly and produce the same content as LF.
         assert bank.shape == (1, PALETTE_SIZE, 4)
+
+
+# --- decode_metatile_bank ---------------------------------------------------
+#
+# All ``decode_metatile_bank`` tests share these synthetic banks:
+#
+#   * Tile bank: 16 tiles where tile ``i`` is an 8x8 block filled with palette
+#     index ``i`` (so tile 0 is "all index 0" — fully transparent for upper
+#     layers; tile 5 is "all index 5"; etc.). Plus a few asymmetric tiles
+#     appended for the xflip / yflip tests.
+#   * Palette bank: 2 palettes. Palette 0 is a greyscale ramp; palette 1 is a
+#     pure-red ramp. Both follow the decoder's convention of alpha=0 at
+#     index 0, alpha=255 elsewhere. All RGB values are GBA-aligned (multiples
+#     of 8), so & 0xF8 is a no-op on them and per-pixel assertions are exact.
+
+
+def _solid_tile_bank() -> np.ndarray:
+    """16 solid tiles (tile ``i`` = all-``i``) for predictable colour output."""
+    bank = np.zeros((16, TILE_SIZE, TILE_SIZE), dtype=np.uint8)
+    for i in range(16):
+        bank[i] = i
+    return bank
+
+
+def _two_palette_bank() -> np.ndarray:
+    """Palette 0 greyscale (R=G=B=i*16), palette 1 pure red (R=i*16)."""
+    bank = np.zeros((2, PALETTE_SIZE, 4), dtype=np.uint8)
+    for i in range(PALETTE_SIZE):
+        v = i * 16
+        alpha = 0 if i == 0 else 255
+        bank[0, i] = (v, v, v, alpha)
+        bank[1, i] = (v, 0, 0, alpha)
+    return bank
+
+
+def _tile_word(tile_id: int, *, xflip: bool = False, yflip: bool = False, palette: int = 0) -> int:
+    """Pack one 2-byte tile entry per ADR-0010 §"Metatile composition"."""
+    return (
+        (tile_id & 0x03FF)
+        | ((1 if xflip else 0) << 10)
+        | ((1 if yflip else 0) << 11)
+        | ((palette & 0x0F) << 12)
+    )
+
+
+def _metatile_bytes(words: list[int]) -> bytes:
+    """Pack a list of 16-bit tile entries into little-endian bytes."""
+    return b"".join(w.to_bytes(2, "little") for w in words)
+
+
+def _attr(layer_type: int = 0) -> MetatileAttributes:
+    """Minimal :class:`MetatileAttributes` for tests — only ``layer_type`` matters."""
+    return MetatileAttributes(
+        behavior=0, terrain_type=0, encounter_type=0, layer_type=layer_type, raw=0
+    )
+
+
+def _transparent_dual() -> bytes:
+    """8 tile entries all = tile 0 (fully transparent, palette 0)."""
+    return _metatile_bytes([_tile_word(0)] * 8)
+
+
+def _common_kwargs(**overrides: int | None) -> dict[str, int | None]:
+    """Default ``decode_metatile_bank`` kwargs; tests override what they need."""
+    base: dict[str, int | None] = {
+        "unused_tile_normal": 0,
+        "unused_tile_covered": 0,
+        "unused_tile_split": 0,
+        "transparency_color": None,
+    }
+    base.update(overrides)
+    return base
+
+
+class TestDecodeMetatileBankDualLayer:
+    """Dual-layer mode (vanilla RSE / pokeemerald — 16-byte metatiles)."""
+
+    def test_layer_type_normal_paints_unused_tile_on_bottom(self) -> None:
+        # All 8 file entries are transparent (tile 0). Only the unused_tile_normal
+        # fill on the bottom layer should show — palette 0, alpha 255.
+        bank = decode_metatile_bank(
+            _transparent_dual(),
+            [_attr(layer_type=0)],
+            _solid_tile_bank(),
+            _two_palette_bank(),
+            layers=2,
+            **_common_kwargs(unused_tile_normal=5),  # type: ignore[arg-type]
+        )
+        assert bank.shape == (1, 16, 16, 4)
+        # palette[0][5] = (80, 80, 80, 255)
+        expected = np.tile(np.array([80, 80, 80, 255], dtype=np.uint8), (16, 16, 1))
+        assert np.array_equal(bank[0], expected)
+
+    def test_layer_type_covered_paints_unused_tile_on_top(self) -> None:
+        bank = decode_metatile_bank(
+            _transparent_dual(),
+            [_attr(layer_type=1)],
+            _solid_tile_bank(),
+            _two_palette_bank(),
+            layers=2,
+            **_common_kwargs(unused_tile_covered=7),  # type: ignore[arg-type]
+        )
+        # palette[0][7] = (112, 112, 112, 255). Bottom + middle are transparent;
+        # top (= unused_covered) paints over.
+        assert np.all(bank[0] == np.array([112, 112, 112, 255], dtype=np.uint8))
+
+    def test_layer_type_split_paints_unused_tile_in_middle(self) -> None:
+        bank = decode_metatile_bank(
+            _transparent_dual(),
+            [_attr(layer_type=2)],
+            _solid_tile_bank(),
+            _two_palette_bank(),
+            layers=2,
+            **_common_kwargs(unused_tile_split=9),  # type: ignore[arg-type]
+        )
+        # palette[0][9] = (144, 144, 144, 255). Middle (unused_split) paints;
+        # bottom & top are transparent file content.
+        assert np.all(bank[0] == np.array([144, 144, 144, 255], dtype=np.uint8))
+
+    def test_unknown_layer_type_falls_back_to_normal(self) -> None:
+        # layer_type=3 isn't one of the defined values in dual-layer mode —
+        # per Porymap's switch-default behavior we treat it as Normal.
+        bank = decode_metatile_bank(
+            _transparent_dual(),
+            [_attr(layer_type=3)],
+            _solid_tile_bank(),
+            _two_palette_bank(),
+            layers=2,
+            **_common_kwargs(unused_tile_normal=4),  # type: ignore[arg-type]
+        )
+        # palette[0][4] = (64, 64, 64, 255). If covered/split were used we'd
+        # see unused_tile_covered/split (both 0 → fully transparent → bg=black).
+        assert np.all(bank[0] == np.array([64, 64, 64, 255], dtype=np.uint8))
+
+    def test_layer_z_order_top_overrides_bottom(self) -> None:
+        # Normal: bottom=unused_normal=5, middle=file[0:4], top=file[4:8].
+        # File middle = tile 0 (transparent). File top tile 0 = tile_id=3 at the
+        # top-left quad (palette 1 → pure red index 3 = (48, 0, 0, 255)).
+        # Expected pixel at (0,0): red from top overrides grey bottom.
+        # Expected pixel elsewhere: grey from bottom (top tiles 1..3 transparent).
+        bank = decode_metatile_bank(
+            _metatile_bytes(
+                [_tile_word(0)] * 4  # middle: all transparent
+                + [_tile_word(3, palette=1), _tile_word(0), _tile_word(0), _tile_word(0)]  # top
+            ),
+            [_attr(layer_type=0)],
+            _solid_tile_bank(),
+            _two_palette_bank(),
+            layers=2,
+            **_common_kwargs(unused_tile_normal=5),  # type: ignore[arg-type]
+        )
+        # Top-left 8x8 quadrant: pure red index 3 (48, 0, 0, 255).
+        assert np.all(bank[0, 0:8, 0:8] == np.array([48, 0, 0, 255], dtype=np.uint8))
+        # Other three quadrants: grey index 5 (80, 80, 80, 255) — bottom layer.
+        assert np.all(bank[0, 0:8, 8:16] == np.array([80, 80, 80, 255], dtype=np.uint8))
+        assert np.all(bank[0, 8:16, 0:8] == np.array([80, 80, 80, 255], dtype=np.uint8))
+        assert np.all(bank[0, 8:16, 8:16] == np.array([80, 80, 80, 255], dtype=np.uint8))
+
+    def test_quad_positions_top_right_bottom_left_bottom_right(self) -> None:
+        # Verify the 4 sub-tile slots map to (0,0), (0,8), (8,0), (8,8). Each
+        # of the 4 middle-layer entries gets a distinct tile (1, 2, 3, 4) and
+        # we read back the 8x8 quadrants.
+        words = (
+            [_tile_word(1), _tile_word(2), _tile_word(3), _tile_word(4)]  # middle
+            + [_tile_word(0)] * 4  # top transparent
+        )
+        bank = decode_metatile_bank(
+            _metatile_bytes(words),
+            [_attr(layer_type=1)],  # Covered → bottom=file[0:4], middle=file[4:8], top=unused
+            _solid_tile_bank(),
+            _two_palette_bank(),
+            layers=2,
+            **_common_kwargs(unused_tile_covered=0),  # type: ignore[arg-type]
+        )
+        # Bottom layer paints since file[0:4] are non-transparent in palette 0.
+        # palette[0][i] = (i*16, i*16, i*16, 255).
+        assert np.all(bank[0, 0:8, 0:8] == np.array([16, 16, 16, 255], dtype=np.uint8))
+        assert np.all(bank[0, 0:8, 8:16] == np.array([32, 32, 32, 255], dtype=np.uint8))
+        assert np.all(bank[0, 8:16, 0:8] == np.array([48, 48, 48, 255], dtype=np.uint8))
+        assert np.all(bank[0, 8:16, 8:16] == np.array([64, 64, 64, 255], dtype=np.uint8))
+
+
+class TestDecodeMetatileBankTripleLayer:
+    """Triple-layer mode (pokeemerald-expansion — 24-byte metatiles)."""
+
+    def test_three_file_layers_ignore_layer_type_and_unused_fills(self) -> None:
+        # File: bottom=tile 2 (all positions), middle=transparent, top=tile 4
+        # at quad (0,0) only. Triple-layer ignores layer_type and unused_tile_*.
+        # Bottom paints grey 2 → (32, 32, 32, 255).
+        # Top at quad (0,0) paints grey 4 → (64, 64, 64, 255) overrides.
+        words = (
+            [_tile_word(2), _tile_word(2), _tile_word(2), _tile_word(2)]  # bottom
+            + [_tile_word(0)] * 4  # middle transparent
+            + [_tile_word(4), _tile_word(0), _tile_word(0), _tile_word(0)]  # top
+        )
+        bank = decode_metatile_bank(
+            _metatile_bytes(words),
+            [_attr(layer_type=2)],  # would be Split in dual mode — must be ignored
+            _solid_tile_bank(),
+            _two_palette_bank(),
+            layers=3,
+            **_common_kwargs(unused_tile_normal=15, unused_tile_split=15),  # type: ignore[arg-type]
+        )
+        # Top-left: tile 4 from top layer.
+        assert np.all(bank[0, 0:8, 0:8] == np.array([64, 64, 64, 255], dtype=np.uint8))
+        # Other quadrants: bottom tile 2 — unused_tile_15 (would be all-15 →
+        # (240, 240, 240)) does NOT appear because triple-layer ignores fills.
+        assert np.all(bank[0, 0:8, 8:16] == np.array([32, 32, 32, 255], dtype=np.uint8))
+        assert np.all(bank[0, 8:16, 0:8] == np.array([32, 32, 32, 255], dtype=np.uint8))
+        assert np.all(bank[0, 8:16, 8:16] == np.array([32, 32, 32, 255], dtype=np.uint8))
+
+
+class TestDecodeMetatileBankTileFlips:
+    """xflip / yflip bit handling on individual tile entries."""
+
+    @staticmethod
+    def _asymmetric_tile_bank() -> np.ndarray:
+        """Tile bank where tile 1 has top half index 1, bottom half index 2;
+        tile 3 has left half index 1, right half index 2."""
+        bank = np.zeros((16, TILE_SIZE, TILE_SIZE), dtype=np.uint8)
+        for i in range(16):
+            bank[i] = i  # solid by default
+        bank[1, :, :] = 0  # reset
+        bank[1, 0:4, :] = 1  # top half
+        bank[1, 4:8, :] = 2  # bottom half
+        bank[3, :, :] = 0
+        bank[3, :, 0:4] = 1  # left half
+        bank[3, :, 4:8] = 2  # right half
+        return bank
+
+    def test_yflip_swaps_top_and_bottom_rows(self) -> None:
+        # Cover the top-left quad of a triple-layer metatile's top layer with
+        # tile 1 (top half = idx 1 grey, bottom half = idx 2 grey), with yflip.
+        # Expected: rows 0..3 of quad get idx 2 (32, 32, 32, 255); rows 4..7
+        # get idx 1 (16, 16, 16, 255).
+        bank = self._asymmetric_tile_bank()
+        words = (
+            [_tile_word(0)] * 4  # bottom transparent
+            + [_tile_word(0)] * 4  # middle transparent
+            + [_tile_word(1, yflip=True), _tile_word(0), _tile_word(0), _tile_word(0)]
+        )
+        out = decode_metatile_bank(
+            _metatile_bytes(words),
+            [_attr()],
+            bank,
+            _two_palette_bank(),
+            layers=3,
+            **_common_kwargs(),  # type: ignore[arg-type]
+        )
+        # Top-left quad rows 0..3: idx 2 (32, 32, 32, 255).
+        assert np.all(out[0, 0:4, 0:8] == np.array([32, 32, 32, 255], dtype=np.uint8))
+        # Top-left quad rows 4..7: idx 1 (16, 16, 16, 255).
+        assert np.all(out[0, 4:8, 0:8] == np.array([16, 16, 16, 255], dtype=np.uint8))
+
+    def test_xflip_swaps_left_and_right_columns(self) -> None:
+        bank = self._asymmetric_tile_bank()
+        words = (
+            [_tile_word(0)] * 4
+            + [_tile_word(0)] * 4
+            + [_tile_word(3, xflip=True), _tile_word(0), _tile_word(0), _tile_word(0)]
+        )
+        out = decode_metatile_bank(
+            _metatile_bytes(words),
+            [_attr()],
+            bank,
+            _two_palette_bank(),
+            layers=3,
+            **_common_kwargs(),  # type: ignore[arg-type]
+        )
+        # Top-left quad cols 0..3: idx 2 (32, 32, 32, 255).
+        assert np.all(out[0, 0:8, 0:4] == np.array([32, 32, 32, 255], dtype=np.uint8))
+        # Top-left quad cols 4..7: idx 1 (16, 16, 16, 255).
+        assert np.all(out[0, 0:8, 4:8] == np.array([16, 16, 16, 255], dtype=np.uint8))
+
+    def test_xflip_and_yflip_combined(self) -> None:
+        # Tile 1 (top=1, bottom=2) with both flips: top↔bottom (yflip) — xflip
+        # leaves it unchanged since the tile is horizontally uniform.
+        bank = self._asymmetric_tile_bank()
+        words = (
+            [_tile_word(0)] * 4
+            + [_tile_word(0)] * 4
+            + [_tile_word(1, xflip=True, yflip=True), _tile_word(0), _tile_word(0), _tile_word(0)]
+        )
+        out = decode_metatile_bank(
+            _metatile_bytes(words),
+            [_attr()],
+            bank,
+            _two_palette_bank(),
+            layers=3,
+            **_common_kwargs(),  # type: ignore[arg-type]
+        )
+        # Expected same as pure yflip on tile 1.
+        assert np.all(out[0, 0:4, 0:8] == np.array([32, 32, 32, 255], dtype=np.uint8))
+        assert np.all(out[0, 4:8, 0:8] == np.array([16, 16, 16, 255], dtype=np.uint8))
+
+
+class TestDecodeMetatileBankTransparencyFill:
+    """Bottom-layer transparency colour (ADR-0010 §"Metatile composition")."""
+
+    def test_transparency_color_fills_when_set(self) -> None:
+        # All layers transparent — entire metatile shows the transparency colour.
+        transparency_color = 0x80C0F0  # 5-bit aligned: 0x80 & 0xF8 == 0x80, etc.
+        bank = decode_metatile_bank(
+            _transparent_dual(),
+            [_attr(layer_type=0)],
+            _solid_tile_bank(),
+            _two_palette_bank(),
+            layers=2,
+            unused_tile_normal=0,  # transparent: tile 0 is all-zero, palette 0[0]=alpha 0
+            unused_tile_covered=0,
+            unused_tile_split=0,
+            transparency_color=transparency_color,
+        )
+        assert np.all(bank[0] == np.array([0x80, 0xC0, 0xF0, 255], dtype=np.uint8))
+
+    def test_transparency_color_quantization_drops_low_3_bits(self) -> None:
+        # 0xFF -> 0xF8 per GBA quantization (ADR-0010 Risk 5).
+        bank = decode_metatile_bank(
+            _transparent_dual(),
+            [_attr(layer_type=0)],
+            _solid_tile_bank(),
+            _two_palette_bank(),
+            layers=2,
+            unused_tile_normal=0,
+            unused_tile_covered=0,
+            unused_tile_split=0,
+            transparency_color=0xFFFFFF,
+        )
+        assert np.all(bank[0] == np.array([0xF8, 0xF8, 0xF8, 255], dtype=np.uint8))
+
+    def test_transparency_color_none_falls_back_to_palette_zero_zero(self) -> None:
+        # Custom palette[0][0] RGB; alpha 0 (per decode_palette_bank).
+        palettes = _two_palette_bank()
+        palettes[0, 0] = (48, 80, 16, 0)
+        bank = decode_metatile_bank(
+            _transparent_dual(),
+            [_attr(layer_type=0)],
+            _solid_tile_bank(),
+            palettes,
+            layers=2,
+            unused_tile_normal=0,
+            unused_tile_covered=0,
+            unused_tile_split=0,
+            transparency_color=None,
+        )
+        # Canvas takes palette[0][0]'s RGB with alpha 255 (opaque background).
+        assert np.all(bank[0] == np.array([48, 80, 16, 255], dtype=np.uint8))
+
+
+class TestDecodeMetatileBankValidation:
+    """Input validation errors."""
+
+    def test_rejects_layers_other_than_2_or_3(self) -> None:
+        with pytest.raises(MetatilesBinFormatError, match="layers must be 2"):
+            decode_metatile_bank(
+                _transparent_dual(),
+                [_attr()],
+                _solid_tile_bank(),
+                _two_palette_bank(),
+                layers=4,
+                **_common_kwargs(),  # type: ignore[arg-type]
+            )
+
+    def test_rejects_size_not_multiple_of_dual_layer_metatile(self) -> None:
+        with pytest.raises(MetatilesBinFormatError, match="not a positive multiple of 16"):
+            decode_metatile_bank(
+                b"\x00" * 15,  # one byte short of a dual-layer metatile
+                [_attr()],
+                _solid_tile_bank(),
+                _two_palette_bank(),
+                layers=2,
+                **_common_kwargs(),  # type: ignore[arg-type]
+            )
+
+    def test_rejects_empty_bytes(self) -> None:
+        with pytest.raises(MetatilesBinFormatError, match="not a positive multiple"):
+            decode_metatile_bank(
+                b"",
+                [],
+                _solid_tile_bank(),
+                _two_palette_bank(),
+                layers=2,
+                **_common_kwargs(),  # type: ignore[arg-type]
+            )
+
+    def test_rejects_attribute_count_mismatch(self) -> None:
+        with pytest.raises(MetatilesBinFormatError, match=r"declares 2 metatiles but 1"):
+            decode_metatile_bank(
+                _transparent_dual() * 2,
+                [_attr()],  # only 1, but file declares 2
+                _solid_tile_bank(),
+                _two_palette_bank(),
+                layers=2,
+                **_common_kwargs(),  # type: ignore[arg-type]
+            )
+
+    def test_rejects_empty_palette_bank(self) -> None:
+        with pytest.raises(PaletteFormatError, match="palette_bank is empty"):
+            decode_metatile_bank(
+                _transparent_dual(),
+                [_attr()],
+                _solid_tile_bank(),
+                np.zeros((0, PALETTE_SIZE, 4), dtype=np.uint8),
+                layers=2,
+                **_common_kwargs(),  # type: ignore[arg-type]
+            )
+
+    def test_out_of_range_tile_id_silently_skipped(self) -> None:
+        # tile_id beyond the bank length is treated as transparent (matches
+        # Porymap's fallback when a metatile references a tile slot the
+        # currently-loaded tilesets don't provide).
+        words = (
+            [_tile_word(999)] * 4  # middle: all out-of-range
+            + [_tile_word(0)] * 4  # top: transparent
+        )
+        bank = decode_metatile_bank(
+            _metatile_bytes(words),
+            [_attr(layer_type=0)],
+            _solid_tile_bank(),  # only 16 tiles
+            _two_palette_bank(),
+            layers=2,
+            **_common_kwargs(unused_tile_normal=2),  # type: ignore[arg-type]
+        )
+        # Bottom layer paints unused_tile_normal=2 = grey idx 2.
+        assert np.all(bank[0] == np.array([32, 32, 32, 255], dtype=np.uint8))
+
+    def test_out_of_range_palette_silently_skipped(self) -> None:
+        # palette=15 with only 2 palettes in bank: the entry is skipped.
+        # Same scaffolding as the previous test — bottom unused_normal still wins.
+        words = (
+            [_tile_word(1, palette=15)] * 4  # middle: palette out-of-range
+            + [_tile_word(0)] * 4
+        )
+        bank = decode_metatile_bank(
+            _metatile_bytes(words),
+            [_attr(layer_type=0)],
+            _solid_tile_bank(),
+            _two_palette_bank(),  # only palettes 0 and 1
+            layers=2,
+            **_common_kwargs(unused_tile_normal=3),  # type: ignore[arg-type]
+        )
+        # Middle skipped → bottom (idx 3 grey = (48, 48, 48, 255)) wins.
+        assert np.all(bank[0] == np.array([48, 48, 48, 255], dtype=np.uint8))
+
+    def test_multiple_metatiles_handled_independently(self) -> None:
+        # Two metatiles back-to-back: first Normal (bottom = unused_normal=5),
+        # second Covered (top = unused_covered=7). Verify both decode correctly.
+        data = _transparent_dual() + _transparent_dual()
+        bank = decode_metatile_bank(
+            data,
+            [_attr(layer_type=0), _attr(layer_type=1)],
+            _solid_tile_bank(),
+            _two_palette_bank(),
+            layers=2,
+            unused_tile_normal=5,
+            unused_tile_covered=7,
+            unused_tile_split=0,
+            transparency_color=None,
+        )
+        assert bank.shape == (2, 16, 16, 4)
+        assert np.all(bank[0] == np.array([80, 80, 80, 255], dtype=np.uint8))
+        assert np.all(bank[1] == np.array([112, 112, 112, 255], dtype=np.uint8))

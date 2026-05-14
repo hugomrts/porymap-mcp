@@ -27,7 +27,7 @@ This is the **reason the project exists in its final form**. Without L3, Claude 
 - [x] Optional overlays implemented: `collision`, `elevation`, `events`, `grid`
 - [x] All L1 mutation tools gain `return_render: bool = False` parameter
 - [ ] Render performance hits the targets in `.claude/agents/map-renderer.md` §"Performance targets" — not formally measured yet
-- [x] Golden pixel tests in CI (`tests/fixtures/renders/` stores both our PNG and the Porymap reference PNG; CI decodes both to RGBA and asserts `np.array_equal`) — `tests/integration/test_fidelity.py` runs all 5 cases, 4/5 passing (case 4 awaits the human's pick of an expansion triple-layer map)
+- [x] Golden pixel tests in CI (`tests/fixtures/renders/` stores both our PNG and the Porymap reference PNG; CI decodes both to RGBA and asserts `np.array_equal`) — `tests/integration/test_fidelity.py` runs all 5 cases, **all 5 passing pixel-identical** vs Porymap reference
 - [x] **End-to-end self-critique loop demonstrated** in `examples/04_render_loop/`:
   - Agent generates a town from a one-line brief
   - Agent calls `render_map`
@@ -157,6 +157,30 @@ Goldens live under `tests/fixtures/renders/`. CI loads both PNGs, converts each 
 ---
 
 ## 9. Session log
+
+### 2026-05-14 — Fidelity corpus 5/5 pass + 4th renderer bug fix (slice 11b)
+
+Case 04 (Battle Frontier Outside East from pokeemerald-expansion)
+landed with 2 / 1805312 differing pixels — both at the very top row
+of two adjacent metatiles in the same map row, both pure black on
+our side and grey on Porymap's. Trace: the expansion's
+`unused_tile_normal=0x3014` is a packed tile-entry word, but our
+renderer was treating it as a bare `tile_id=12308`, well above the
+1024-tile combined bank cap. The bottom-layer fill fell through the
+out-of-range guard and exposed the `transparency_color` background.
+
+Fix: decode `unused_tile_normal`, `unused_tile_covered`, and
+`unused_tile_split` using the same bit unpacking as a regular tile
+entry (tile_id 0-9, xflip 10, yflip 11, palette 12-15). One helper,
+three call sites.
+
+After the fix: **all 5 corpus cases pass pixel-identical.** Suite:
+464 → **465 passing**, 0 skipped. ADR-0010 gains a fourth
+"Empirical correction" bullet documenting the bug.
+
+Phase-4 §2 status: every functional exit criterion is now ticked
+except the formally-unmeasured perf budget (informally well within
+target on every case). Project is `v1.0.0`-ready.
 
 ### 2026-05-14 — Fidelity corpus shipped + 3 renderer bug fixes (slice 11)
 

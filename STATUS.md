@@ -5,7 +5,7 @@
 > Updated at the end of every session that moves the project forward.
 
 **Last updated:** 2026-05-14
-**Last session:** **Fidelity corpus shipped + 3 renderer bug fixes — v1.0.0 within reach.** PR #12 on `claude/continue-project-ax6Mm` now carries slices 10, 10b, and 11. Validating against real Porymap exports of Littleroot Town, Route 101, and Granite Cave 1F (all vendored from a pokeemerald-expansion checkout via the new `tests/fixtures/renders/vendor_case.py`) surfaced three latent bugs: (1) we were applying `& 0xF8` GBA quantization on palette decode but Porymap propagates JASC bytes verbatim — removed; (2) the border-tile phase was anchored on the output's top-left, not the map's — fixed; (3) the border frame default was symmetric `7x7` but Porymap's view distance is asymmetric `7 horizontal x 5 vertical` — split into `DEFAULT_BORDER_FRAME_METATILES_{HORIZONTAL,VERTICAL}`. After fixes: cases 1-3 produce **0/261120 differing pixels** vs Porymap export. `tests/integration/test_fidelity.py` runs all 5 cases parametrized; case 4 (expansion triple-layer map) auto-skips while it awaits the human's pick + export. Case 5 (synthetic regression) green. Suite: 460 → **464 passing + 1 skipped**; lint + mypy clean. ADR-0010 gains an "Empirical corrections" §. Per-slice writeups in [`docs/phases/phase-4-l3-vision.md`](docs/phases/phase-4-l3-vision.md) §9.
+**Last session:** **Fidelity corpus 5/5 pass — phase-4 §2 fully closed, project is `v1.0.0`-ready.** PR #12 on `claude/continue-project-ax6Mm` now carries slices 10, 10b, 11, and 11b. Validating against real Porymap exports of Littleroot Town, Route 101, Granite Cave 1F (vanilla maps from a pokeemerald-expansion checkout) and Battle Frontier Outside East (expansion triple-layer map) surfaced **four** latent bugs in the renderer: (1) `& 0xF8` GBA quantization on palette decode — wrong, Porymap propagates JASC bytes verbatim — removed; (2) border-tile phase anchored on the output's top-left, not the map's — fixed; (3) border frame default was symmetric 7x7 but Porymap uses asymmetric `7 horizontal x 5 vertical` — split constants; (4) `unused_tile_*` config keys are packed tile-entry words (palette + flips + tile_id), not bare tile_ids — added decoder. After all four fixes: **all 5 corpus cases pass pixel-identical** vs Porymap. Suite: 460 → **465 passing**, 0 skipped. ADR-0010 gains four "Empirical corrections". Per-slice writeups in [`docs/phases/phase-4-l3-vision.md`](docs/phases/phase-4-l3-vision.md) §9.
 
 ---
 
@@ -91,13 +91,11 @@ Branch with the last session's work: `claude/continue-project-ax6Mm` — opened 
 
 **Up next, in order:**
 
-1. **Land case 04 of the fidelity corpus** — the only remaining open exit-criterion item. Pick an `pokeemerald-expansion` map that uses **triple-layer metatiles** (`enable_triple_layer_metatiles=1`), export it through Porymap with the documented flags, drop the PNG at `tests/fixtures/renders/case_04_expansion_layered/reference.png`, and run `vendor_case.py` to copy the project slice. The test runner (`tests/integration/test_fidelity.py`) auto-discovers it. **Optional**: case 5 (synthetic) already exercises the triple-layer code path — a maintainer can also choose to waive case 4 with a small ADR addendum and tag `v1.0.0` on 4/5 cases.
+1. **Tag `v1.0.0`.** Update `CHANGELOG.md`'s `[Unreleased]` heading to `[1.0.0] — <date>`, write the release notes summarizing the L3 surface (3 render tools + `return_render` everywhere + 5/5 fidelity corpus + the worked example loop), and `git tag v1.0.0 && git push --tags` once PR #12 is merged.
 
-2. **Tag `v1.0.0`** when case 4 lands (or is waived). Update `CHANGELOG.md`'s `[Unreleased]` heading to `[1.0.0] — <date>`, write the release notes, and tag.
+2. **Perf benchmarks** (only exit-criterion item still formally unmeasured). Quick wins: a `tests/integration/test_perf.py` that times `render_map` on case 1 (small town), case 5 (30x20 synthetic), and a synthetic 60x120, asserting each falls inside the targets in `.claude/agents/map-renderer.md` §"Performance targets". Not blocking `v1.0.0` — informal measurements during fidelity work showed every corpus case well under budget — but useful as a CI guard against a future perf regression.
 
-3. **Perf benchmarks** (also exit-criterion item, currently unmeasured). Quick wins: a `tests/integration/test_perf.py` that times `render_map` on case 1 (small town), case 5 (30x20), and a synthetic 60x120, and asserts each falls inside the targets in `.claude/agents/map-renderer.md` §"Performance targets". Not blocking `v1.0.0` per se — informal measurements during fidelity work showed all cases well under budget.
-
-4. *Optional enhancement, deferred:* swap overlay event squares for 12x12 PNG icons + bundle a small bitmap font for elevation labels. Both need committed binary assets and a `pyproject.toml` wheel-include change.
+3. *Optional enhancement, deferred:* swap overlay event squares for 12x12 PNG icons + bundle a small bitmap font for elevation labels. Both need committed binary assets and a `pyproject.toml` wheel-include change.
 
 **Useful current state for the next session (fidelity-corpus pointers):**
 

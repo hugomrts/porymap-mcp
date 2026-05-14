@@ -70,6 +70,12 @@ class MetatilesBinFormatError(FormatError):
     (size not a multiple of 16/24, or attribute count mismatch)."""
 
 
+class LayoutAssemblyError(PorymapMCPError):
+    """L3 layout-assembly precondition failed: shape mismatch between the
+    metatile bank and the metatile grid, grid contains an out-of-range
+    metatile ID, or a requested region is invalid for the grid."""
+
+
 class MapNotFoundError(ProjectError):
     """Referenced map name does not exist in the project."""
 

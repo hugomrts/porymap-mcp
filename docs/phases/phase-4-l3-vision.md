@@ -158,6 +158,32 @@ Goldens live under `tests/fixtures/renders/`. CI loads both PNGs, converts each 
 
 ## 9. Session log
 
+### 2026-05-14 — `render/layout.py` shipped (assembly slice)
+
+Implementation slice 4. Added `src/porymap_mcp/render/layout.py`:
+
+- `assemble(metatile_bank, metatile_grid) -> uint8[H*16, W*16, 4]` — pure-numpy paste. Single fancy-index over the flattened grid, then `reshape(H, W, 16, 16, 4).transpose(0, 2, 1, 3, 4).reshape(H*16, W*16, 4).copy()` interleaves the W and tile-pixel axes so adjacent metatiles end up adjacent in the output buffer. C-contiguous output for downstream Pillow encode.
+- `assemble_region(bank, grid, *, x1, y1, x2, y2)` — strict half-open slice in metatile units. Raises on degenerate/out-of-grid bounds.
+- `clip_region(grid_shape, x1, y1, x2, y2) -> (cx1, cy1, cx2, cy2)` — clamps a requested region to a grid's bounds; raises only when the clip collapses to empty (= caller asked for somewhere fully outside the grid). The tool layer composes `clip_region` + `assemble_region` when "render whatever fits" is the desired semantics.
+- `mapbin_to_metatile_grid(mb: MapBin) -> uint16[H, W]` — adapter that drops the per-tile collision/elevation fields; the full :class:`MapBin` stays available to overlay renderers.
+
+New error class `LayoutAssemblyError` (precondition failures: bank shape/dtype, grid shape/dtype, out-of-range IDs, region bounds).
+
+**+32 unit tests** under `tests/unit/render/test_layout.py` (suite: 351 → **383 passing**). Coverage:
+
+- `assemble`: single-cell grid, 2x3 grid pixel-by-pixel (origin top-left), metatile repetition, within-tile pixel order preserved (asymmetric metatile), C-contiguous output, accepts int32/int64/uint8/uint16 grid dtypes.
+- Validation: out-of-range ID, negative ID, non-integer dtype, 1D grid, empty grid, wrong bank shape/dtype, empty bank.
+- `assemble_region`: subgrid extraction, full-region equality with `assemble`, 1-cell region, 6 parametrized invalid-bounds cases (zero-width, zero-height, reversed bounds, negatives, beyond width, beyond height).
+- `clip_region`: in-bounds passthrough, right/bottom overrun, left/top underflow, full-engulf, fully-outside (left + bottom), degenerate input.
+- `mapbin_to_metatile_grid`: extracts metatile_id and drops collision/elevation; round-trip to `assemble`.
+
+`ruff check` + `ruff format --check` + `mypy --strict src/porymap_mcp` + `pytest --no-cov` all clean.
+
+Notes for the next slice:
+
+- **Border framing is NOT in this slice.** The `assemble`/`assemble_region` primitives already render a `border.bin` (it's a small `MapBin`), but the *tiling* that wraps a map with its border (Porymap's "include border" exporter mode) requires a small composition step — defer until `tools/rendering.py` actually wires `include_border=True`. ADR-0010 §"Layout assembly" says border follows the same pipeline; that's correct for rendering the 2x2 grid itself but not for the wrap-around frame.
+- **Performance.** The fancy-index + reshape path is a single C-level copy; bench should be sub-millisecond for 30x20 even on cold cache. Will measure once `tools/rendering.py` is in place.
+
 ### 2026-05-14 — `compose.decode_metatile_bank` shipped (compose slice 2)
 
 Implementation slice 3 from the previous handoff. Added the metatile composer

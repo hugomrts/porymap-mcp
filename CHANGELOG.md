@@ -4,6 +4,46 @@ All notable changes to `porymap-mcp` are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com); the project adheres to
 [Semantic Versioning](https://semver.org).
 
+## [Unreleased] — `v1.0.0` candidate
+
+L3 — Vision: server-side map rendering with self-critique loop. Phase 4 of the roadmap (see [`docs/phases/phase-4-l3-vision.md`](docs/phases/phase-4-l3-vision.md)).
+
+`v0.2.0` is intentionally skipped — L2 (Live Porymap) was abandoned per [ADR-0009](docs/decisions/0009-abandon-l2-live-porymap.md). The roadmap jumps from `v0.1.0` (L1) straight to `v1.0.0` (L1 + L3).
+
+### Added
+
+**Render pipeline** (`src/porymap_mcp/render/`, behind the `render` optional extra — `pip install porymap-mcp[render]`):
+
+- `compose.py` — `decode_tile_bank`, `decode_palette_bank`, `decode_metatile_bank`. Decodes `tiles.png` (4-bpp indexed), JASC `.pal` files (with mandatory GBA 5-bit hardware quantization, `c & 0xF8`), and dual-/triple-layer metatiles; fills missing layers per `unused_tile_{normal,covered,split}` × `LayerType` per [ADR-0010](docs/decisions/0010-l3-renderer-design.md).
+- `layout.py` — `assemble`, `assemble_region`, `clip_region`, `mapbin_to_metatile_grid`, `tile_border_around`. Pure-numpy fancy-index assembly of metatile grids into pixel buffers; modulo-tiled border framing.
+- `overlays.py` — `apply_{collision,elevation,grid,events}_overlay` + dispatcher. Alpha-blended translucent overlays for the four supported modes.
+- `encode.py` — `encode_png` (palette-vs-RGBA selection per ADR-0010 §"PNG encoding": palette mode iff opaque, ≤ 4096 metatiles, ≤ 256 distinct RGB), `package_render_result` (FastMCP `ToolResult` + `ImageContent` packaging).
+
+**New MCP tools (3):**
+
+- `render_map(project_path, map_name, *, overlays=[], include_border=False, scale=1)` — returns the full map as a PNG `ImageContent` block.
+- `render_map_region(project_path, map_name, x1, y1, x2, y2, *, overlays=[], scale=1)` — partial render for big maps.
+- `render_metatile(project_path, tileset_name, metatile_id, *, scale=4)` — single-metatile preview.
+
+**`return_render: bool = False` on every L1 mutation tool** (12 tools — 7 in `maps.py`, 5 in `events.py`). When `True`, the response includes a render of the post-mutation map; default `False` preserves the historical `dict` contract.
+
+**Extended `ProjectConfig`** reads `transparency_color`, `unused_tile_{normal,covered,split}` from `porymap.project.cfg` — required by the L3 metatile composer.
+
+**Worked example** at [`examples/04_render_loop/`](examples/04_render_loop/) — runnable demo of the full `paint → render → critique → fix → re-render` loop with two committed render PNGs showing iter-1 → iter-2 score improvement.
+
+**New errors:** `TilesPngFormatError`, `PaletteFormatError`, `MetatilesBinFormatError`, `LayoutAssemblyError`, `PngEncodeError`.
+
+### Tooling
+
+- `pyproject.toml`: new `render` optional extra (`Pillow>=10.0`, `numpy>=1.26`). Mypy override for `numpy.*` / `PIL.*`.
+- Tests: **460 passing** (308 L1 + 152 new under `tests/unit/render/` + `tests/unit/tools/test_rendering.py`).
+
+### Known limitations
+
+- 5-map fidelity corpus (`tests/fixtures/renders/`) not yet committed — Porymap-exported reference PNGs pending. `v1.0.0` tags when the corpus passes `np.array_equal(decoded(ours), decoded(reference))` in CI.
+- Map connections not rendered in `v1.0` (reference Porymap exports use "show connections = off"); a future `v1.1` may add `include_connections: bool`.
+- Overlay event squares are coloured rectangles, not icons; a future enhancement bundles 12×12 PNG icons under `src/porymap_mcp/render/assets/icons/`.
+
 ## [0.1.0] — 2026-05-13
 
 First public release. L1 Filesystem capability complete: an MCP agent
@@ -56,11 +96,13 @@ tileset-metadata strategy, and per-tool API surfaces.
 
 ### Known limitations
 
-- Typed event dataclasses are deferred to v0.2.0 (raw-dict events
-  round-trip via `parsers/mapjson`).
+- Typed event dataclasses deferred (raw-dict events round-trip via
+  `parsers/mapjson`).
 - Built-in prefab metatile IDs target vanilla pokeemerald conventions;
   forks may need to register replacement prefabs.
-- L2 (live Porymap hot-reload) and L3 (PNG rendering) are planned for
-  v0.2.0 / v1.0.0 respectively.
+- L2 (live Porymap hot-reload) was abandoned post-`v0.1.0`
+  ([ADR-0009](docs/decisions/0009-abandon-l2-live-porymap.md)); L3
+  rendering ships in `v1.0.0` instead.
 
+[Unreleased]: https://github.com/hugomrts/porymap-mcp/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/hugomrts/porymap-mcp/releases/tag/v0.1.0

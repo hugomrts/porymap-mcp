@@ -606,3 +606,115 @@ class TestRegister:
         tools = asyncio.run(mcp.list_tools())
         names = {t.name for t in tools}
         assert {"render_map", "render_map_region", "render_metatile"}.issubset(names)
+
+
+# --- return_render on mutation tools -------------------------------------
+
+
+class TestMutationReturnRender:
+    """Smoke + structural tests for the ``return_render`` parameter that
+    ADR-0006/0007 add to every L1 mutation tool. We assert: (a) the
+    default ``return_render=False`` path still produces a dict (backward
+    compat); (b) ``return_render=True`` returns a FastMCP ``ToolResult``
+    whose ``content[0]`` is the rendered PNG and whose ``structured_content``
+    carries both the mutation's original fields and a nested ``render``
+    metadata dict."""
+
+    def test_paint_metatile_default_returns_dict(self, tmp_path: Path) -> None:
+        from porymap_mcp.tools import maps
+
+        project = _build_project(tmp_path)
+        result = maps.paint_metatile(str(project), "MAP_TEST_TOWN", 0, 0, 1)
+        assert isinstance(result, dict)
+        assert result["map_name"] == "MAP_TEST_TOWN"
+        # No image content block — the historical L1 contract.
+        assert "render" not in result
+
+    def test_paint_metatile_return_render_attaches_png(self, tmp_path: Path) -> None:
+        from porymap_mcp.tools import maps
+
+        project = _build_project(tmp_path)
+        result = maps.paint_metatile(str(project), "MAP_TEST_TOWN", 0, 0, 1, return_render=True)
+        # ToolResult, not dict.
+        assert not isinstance(result, dict)
+        rgba = _decode_tool_result_image(result)
+        # The map is 3x2 metatiles = 48x32 px.
+        assert rgba.shape == (32, 48, 4)
+        # Cell (0, 0) was just repainted to metatile 1 (blue, colour C).
+        assert tuple(int(c) for c in rgba[8, 8]) == (0, 0, 8, 255)
+
+        sc = cast(dict[str, object], result.structured_content)
+        # Mutation fields preserved at the top level.
+        assert sc["map_name"] == "MAP_TEST_TOWN"
+        assert sc["x"] == 0
+        assert sc["y"] == 0
+        assert sc["metatile_id"] == 1
+        # Render metadata nested under "render".
+        render = cast(dict[str, object], sc["render"])
+        assert render["map_name"] == "MAP_TEST_TOWN"
+        assert render["encoding"] in ("png-palette-8", "png-rgba-8")
+        assert render["dimensions"] == {"width": 3, "height": 2}
+        # Combined summary mentions both the mutation and the render.
+        assert isinstance(sc["summary"], str)
+        assert "Painted" in cast(str, sc["summary"])
+        assert "Rendered" in cast(str, sc["summary"])
+
+    def test_paint_rectangle_return_render(self, tmp_path: Path) -> None:
+        from porymap_mcp.tools import maps
+
+        project = _build_project(tmp_path)
+        result = maps.paint_rectangle(
+            str(project), "MAP_TEST_TOWN", 0, 0, 1, 1, 1, return_render=True
+        )
+        assert not isinstance(result, dict)
+        sc = cast(dict[str, object], result.structured_content)
+        assert "render" in sc
+        assert sc["tiles_changed"] >= 1
+
+    def test_noop_paint_metatile_still_renders_when_requested(self, tmp_path: Path) -> None:
+        # paint_metatile with the same value as already on the tile is a
+        # no-op: files_modified == []. return_render=True should still
+        # produce a PNG (the response wants the current state of the map).
+        from porymap_mcp.tools import maps
+
+        project = _build_project(tmp_path)
+        # Cell (0, 0) is already metatile 0 in the fixture.
+        result = maps.paint_metatile(str(project), "MAP_TEST_TOWN", 0, 0, 0, return_render=True)
+        assert not isinstance(result, dict)
+        sc = cast(dict[str, object], result.structured_content)
+        assert sc["files_modified"] == []
+        assert "render" in sc
+
+    def test_add_warp_return_render(self, tmp_path: Path) -> None:
+        from porymap_mcp.tools import events
+
+        project = _build_project(tmp_path)
+        result = events.add_warp(
+            str(project),
+            "MAP_TEST_TOWN",
+            1,
+            1,
+            dest_map="MAP_TEST_TOWN",
+            dest_warp_id=0,
+            return_render=True,
+        )
+        assert not isinstance(result, dict)
+        sc = cast(dict[str, object], result.structured_content)
+        # Mutation fields preserved.
+        assert sc["event_id"] == "warp_events:0"
+        # Render metadata nested.
+        assert "render" in sc
+
+    def test_remove_event_noop_still_renders(self, tmp_path: Path) -> None:
+        # Removing a non-existent event_id is a no-op (no file write); the
+        # render should still come back to show current state.
+        from porymap_mcp.tools import events
+
+        project = _build_project(tmp_path)
+        result = events.remove_event(
+            str(project), "MAP_TEST_TOWN", "warp_events:999", return_render=True
+        )
+        assert not isinstance(result, dict)
+        sc = cast(dict[str, object], result.structured_content)
+        assert sc["removed_event"] is None
+        assert "render" in sc

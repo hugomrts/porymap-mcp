@@ -316,11 +316,24 @@ def decode_metatile_bank(
     num_tiles = int(tile_bank.shape[0])
     num_palettes = int(palette_bank.shape[0])
 
-    # The "unused" entry: tile_id only; palette 0, no flips (Porymap's bare
-    # ``Tile(id)`` constructor defaults — see ``src/ui/imageproviders.cpp``).
-    fill_normal = (unused_tile_normal, False, False, 0)
-    fill_covered = (unused_tile_covered, False, False, 0)
-    fill_split = (unused_tile_split, False, False, 0)
+    # The "unused" entry is a full packed tile-entry word (same bit layout
+    # as the metatile's own entries: tile_id in bits 0-9, xflip 10, yflip
+    # 11, palette 12-15). Verified empirically against the L3 fidelity
+    # corpus (case 04 / pokeemerald-expansion uses
+    # ``unused_tile_normal=0x3014`` = palette 3, tile 20 — treating it as
+    # a bare tile_id of 12308 sends it out-of-range and silently skips
+    # the bottom-layer fill).
+    def _decode_unused(word: int) -> tuple[int, bool, bool, int]:
+        return (
+            word & 0x03FF,
+            bool((word >> 10) & 0x1),
+            bool((word >> 11) & 0x1),
+            (word >> 12) & 0x0F,
+        )
+
+    fill_normal = _decode_unused(unused_tile_normal)
+    fill_covered = _decode_unused(unused_tile_covered)
+    fill_split = _decode_unused(unused_tile_split)
 
     for m in range(num_metatiles):
         layer_a = _entries_at(tile_ids, xflips, yflips, palette_nums, m, 0, 4)

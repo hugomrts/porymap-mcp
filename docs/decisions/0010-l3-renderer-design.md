@@ -251,6 +251,24 @@ phases is the difference between getting *any* pixel right or *no*
 pixels right. Fix is one line — subtract the frame offset from the
 output coordinates before the modulo.
 
+### Correction 3 — Border frame is asymmetric (7 horizontal x 5 vertical metatiles), not 7x7
+
+§"Decision" doesn't pin the frame size, but `tools/rendering.py`
+shipped with `DEFAULT_BORDER_FRAME_METATILES = 7` (symmetric).
+**Porymap's `Metatile::pixelsPerMetatile` view distance is 7
+horizontal x 5 vertical metatiles per side**, mirroring half of the
+GBA visible screen area (240/16 = 15 metatiles wide x 160/16 = 10
+metatiles tall, halved and rounded down to the nearest integer).
+
+Constants split:
+- `DEFAULT_BORDER_FRAME_METATILES_HORIZONTAL = 7`
+- `DEFAULT_BORDER_FRAME_METATILES_VERTICAL = 5`
+
+`structured_content["border_frame_metatiles"]` is now a dict with
+`{"horizontal": 7, "vertical": 5}` keys instead of a single int.
+Mutation tools' `return_render` path inherits the asymmetric default
+through the same constants.
+
 ### Correction 4 — `unused_tile_*` config keys are packed tile-entry words, not bare tile ids
 
 `render/compose.py::decode_metatile_bank` originally treated
@@ -279,32 +297,17 @@ Fix: decode `unused_tile_*` via the same bit unpacking as a regular
 tile entry (one helper, three call sites). After the fix, case 04
 matches Porymap byte-for-byte (0/1805312 differing pixels).
 
-### Correction 3 — Border frame is asymmetric (7 horizontal x 5 vertical metatiles), not 7x7
-
-§"Decision" doesn't pin the frame size, but `tools/rendering.py`
-shipped with `DEFAULT_BORDER_FRAME_METATILES = 7` (symmetric).
-**Porymap's `Metatile::pixelsPerMetatile` view distance is 7
-horizontal x 5 vertical metatiles per side**, mirroring half of the
-GBA visible screen area (240/16 = 15 metatiles wide x 160/16 = 10
-metatiles tall, halved and rounded down to the nearest integer).
-
-Constants split:
-- `DEFAULT_BORDER_FRAME_METATILES_HORIZONTAL = 7`
-- `DEFAULT_BORDER_FRAME_METATILES_VERTICAL = 5`
-
-`structured_content["border_frame_metatiles"]` is now a dict with
-`{"horizontal": 7, "vertical": 5}` keys instead of a single int.
-Mutation tools' `return_render` path inherits the asymmetric default
-through the same constants.
-
 ### Updated risk inventory
 
-The single highest residual risk is now **Correction 4 (unknown)** —
-some other Porymap-specific behaviour the corpus hasn't yet exposed.
-The fidelity test runner (`tests/integration/test_fidelity.py`) is
-designed to catch any such drift on any future case the maintainer
-adds; CI fails the corpus on a single mismatching pixel, so a
-regression cannot ship silently.
+The four corrections above are validated end-to-end by the
+fidelity-corpus test runner (`tests/integration/test_fidelity.py`).
+All 5 corpus cases pass pixel-identical against Porymap's own export
+(0 differing pixels each). The single highest residual risk is some
+other Porymap-specific behaviour the current 5-case corpus has not
+yet exposed (a *Correction 5* we haven't met). Mitigation: CI fails
+the corpus on a single mismatching pixel, so a regression cannot
+ship silently, and adding a new case is a one-line edit in
+`test_fidelity.py::CASES` plus one Porymap export.
 
 ---
 

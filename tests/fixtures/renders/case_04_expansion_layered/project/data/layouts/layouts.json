@@ -1,0 +1,15 @@
+{
+  "layouts_table_label": "gMapLayouts",
+  "layouts": [
+    {
+      "id": "LAYOUT_BATTLE_FRONTIER_OUTSIDE_EAST",
+      "name": "BattleFrontier_OutsideEast_Layout",
+      "width": 72,
+      "height": 72,
+      "primary_tileset": "gTileset_General",
+      "secondary_tileset": "gTileset_BattleFrontierOutsideEast",
+      "border_filepath": "data/layouts/BattleFrontier_OutsideEast/border.bin",
+      "blockdata_filepath": "data/layouts/BattleFrontier_OutsideEast/map.bin"
+    }
+  ]
+}

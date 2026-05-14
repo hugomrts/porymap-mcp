@@ -8,7 +8,7 @@
 
 ---
 
-> ⚠️ **Alpha.** v0.1.0 is in active development. The tool surface is frozen but no public release exists yet. See [`STATUS.md`](STATUS.md) for current progress.
+> ⚠️ **Alpha.** `v0.1.0` (L1 — Filesystem) is tagged on GitHub. L3 — Vision (rendering + self-critique loop) is implemented on `main` and gates the upcoming `v1.0.0` (first stable, first PyPI release). L2 — Live Porymap was abandoned, see [ADR-0009](docs/decisions/0009-abandon-l2-live-porymap.md). See [`STATUS.md`](STATUS.md) for live progress.
 
 ---
 
@@ -18,8 +18,7 @@
 
 - **Read** a pokeemerald-family project's maps, tilesets, events, and prefabs.
 - **Write** map layouts (paint metatiles, rectangles, prefabs), events (warps, NPCs, signs, triggers), and project structure (register new maps).
-- **(coming in v0.2)** Push changes to a running Porymap instance for live preview.
-- **(coming in v1.0)** Render maps as PNG so the agent can *see* its own output and self-critique.
+- **Render** maps to PNG and return them inline in tool responses — the agent *sees* its output, scores it with the [`map-design-critic`](.claude/agents/map-design-critic.md) sub-agent, and iterates. See [`examples/04_render_loop/`](examples/04_render_loop/).
 
 It edits the same files Porymap edits — your manual workflow in Porymap is never disrupted.
 
@@ -33,9 +32,9 @@ It edits the same files Porymap edits — your manual workflow in Porymap is nev
 
 | Level | What it gives you | Status |
 |-------|-------------------|--------|
-| **L1 — Filesystem** | Edit map files directly. Open Porymap *after* to visualize. | In progress (v0.1) |
-| **L2 — Live Porymap** | Porymap reloads automatically as the agent edits. | Planned (v0.2) |
-| **L3 — Vision** | Renders maps to PNG and returns them in tool calls — agent sees its work. | Planned (v1.0) |
+| **L1 — Filesystem** | Edit map files directly. Open Porymap *after* to visualize. | ✅ Shipped — `v0.1.0` (GitHub tag) |
+| **L2 — Live Porymap** | Porymap reloads automatically as the agent edits. | ❌ Abandoned — see [ADR-0009](docs/decisions/0009-abandon-l2-live-porymap.md) |
+| **L3 — Vision** | Renders maps to PNG and returns them in tool calls — agent sees its work and self-critiques. | 🛠 Implemented on `main`; `v1.0.0` pending the 5-map fidelity corpus. |
 
 ## Compatibility
 
@@ -80,16 +79,30 @@ The agent will:
 
 Open the project in Porymap (or rebuild your ROM) — the map is there.
 
-### Tool surface (v0.1)
+## See your map (L3)
 
-**Discovery (read-only):**
+After painting, the agent can ask the server to render the map and get a PNG back **inline in the tool response**. That render goes straight to the `map-design-critic` sub-agent, which scores it against a 12-criterion Gen 3 rubric (path geometry, tile variety, building placement, border softness, …) and returns a prioritized fix list. The agent applies the fixes and re-renders. The loop converges in 2–4 iterations on simple maps.
+
+| Iter 1 — naive draft | Iter 2 — after critique |
+|---------------------|--------------------------|
+| ![iter1](examples/04_render_loop/renders/iter1.png) | ![iter2](examples/04_render_loop/renders/iter2.png) |
+| Score: 7 / 36 | Score: 21 / 36 (+14) |
+
+Walkthrough + runnable demo: [`examples/04_render_loop/`](examples/04_render_loop/).
+
+### Tool surface (v0.1 + L3)
+
+**Discovery (7, read-only):**
 `get_project_info`, `list_maps`, `get_map_info`, `list_tilesets`, `list_metatiles`, `list_prefabs`, `list_events`.
 
-**Mutation:**
-`paint_metatile`, `paint_rectangle`, `flood_fill`, `set_border`, `paint_prefab`, `create_map`, `resize_map`, `register_map`, `unregister_map`.
+**Mutation (9):**
+`paint_metatile`, `paint_rectangle`, `flood_fill`, `set_border`, `paint_prefab`, `create_map`, `resize_map`, `register_map`, `unregister_map`. Every paint tool accepts `return_render: bool = False` — set it `True` and the response carries the post-paint PNG as well, folding the next `render_map` call into the same round-trip.
 
-**Events:**
-`add_warp`, `add_object_event`, `add_sign`, `add_trigger`, `remove_event`.
+**Events (5):**
+`add_warp`, `add_object_event`, `add_sign`, `add_trigger`, `remove_event`. Also accept `return_render: bool = False`.
+
+**Render (3, L3):**
+`render_map`, `render_map_region`, `render_metatile`. Each returns a FastMCP `ToolResult` whose `content[0]` is a PNG `ImageContent` block — agents see the map natively without base64-in-JSON. Overlays (`collision`, `elevation`, `grid`, `events`) and `include_border` are first-class flags.
 
 Every tool is documented inline (its docstring is what your agent reads). The full contracts live in the ADRs:
 
@@ -97,6 +110,7 @@ Every tool is documented inline (its docstring is what your agent reads). The fu
 - [ADR-0006](docs/decisions/0006-l1-mutation-tools-api.md) — mutation
 - [ADR-0007](docs/decisions/0007-l1-event-tools-api.md) — events
 - [ADR-0008](docs/decisions/0008-prefab-library-and-paint-prefab.md) — prefabs
+- [ADR-0010](docs/decisions/0010-l3-renderer-design.md) — L3 renderer (numpy + Pillow, GBA 5-bit quantization, pixel-identical fidelity)
 
 ### Prefab library
 

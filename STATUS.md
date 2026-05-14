@@ -69,7 +69,7 @@ Resolved decisions live under [`docs/decisions/`](docs/decisions/). No open deci
 
 ## Next session pickup (L3 implementation in progress)
 
-Branch with this session's work: `claude/continue-project-EPgUS`. The previous L3-foundation PR (`claude/continue-project-Bqrxp`) was already merged to `main` (commit `c638595`); this branch builds on top of that. Start by merging this branch's PR, then check out `main` fresh.
+Branch with the last session's work: `claude/continue-project-EPgUS` — opened as [PR #10](https://github.com/hugomrts/porymap-mcp/pull/10) (3 commits: `53ae8fb` + `475543b` + `efc4aac`). **Before starting work**: verify the PR is merged, then `git checkout main && git pull` for a clean tree. If the PR is still open, the next session's job is *just to land it* (review CI, fix any drift) — do not start the `tools/rendering.py` slice on a stale base.
 
 **Done in last session** (don't redo):
 - ✅ Slice 3 (commit `53ae8fb`): `compose.decode_metatile_bank` — full ADR-0010 §"Metatile composition" rule (3 layers, LayerType→unused_tile_* mapping, xflip/yflip, GBA-quantized transparency_color fill, out-of-range skip). New error `MetatilesBinFormatError`. +21 tests.

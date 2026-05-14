@@ -158,6 +158,101 @@ Goldens live under `tests/fixtures/renders/`. CI loads both PNGs, converts each 
 
 ## 9. Session log
 
+### 2026-05-14 — `tools/rendering.py` shipped (end-to-end render wiring)
+
+Implementation slice 6 — the slice that finally consumes `compose` +
+`layout` + `encode` end-to-end. New module
+`src/porymap_mcp/tools/rendering.py` registers three FastMCP tools via
+`register(mcp)`:
+
+- `render_map(project_path, map_name, *, overlays=[], include_border=False, scale=1)`
+- `render_map_region(project_path, map_name, x1, y1, x2, y2, *, overlays=[], scale=1)`
+- `render_metatile(project_path, tileset_name, metatile_id, *, scale=4)`
+
+All three return a `ToolResult` packaged via `package_render_result` — an
+`ImageContent` PNG block plus a `structured_content` dict carrying the
+canonical L1 fields (`summary`, `project_path`, `map_name`/`layout_id`,
+`dimensions`, `pixel_dimensions`, `scale`, `encoding`, `byte_size`,
+`tilesets`, plus tool-specific keys like `region` and
+`companion_tileset`).
+
+**Pipeline.** For each call: load `Project` → resolve the
+primary/secondary `TilesetEntry` pair via `get_tileset_by_label` →
+decode banks (`tile_bank: uint8[1024, 8, 8]`, `palette_bank:
+uint8[13, 16, 4]`, `metatile_bank: uint8[N, 16, 16, 4]` where `N` is
+`512 + secondary_metatile_count`) → `layout.assemble` or
+`layout.assemble_region` → `_scale_nearest` (numpy `repeat`, clamped to
+1..8) → `encode_png` (palette-vs-RGBA selection per ADR-0010) →
+`package_render_result`. Primary is padded to slot 512 with zero
+metatiles so secondary metatiles always land at index 512 even when the
+primary tileset declares fewer metatiles.
+
+**Numpy/Pillow imports are deferred inside each tool body.** Importing
+`porymap_mcp.tools.rendering` requires only the base dependencies; only
+invoking a tool requires the `render` extra. `server.build_server()`
+imports `rendering` at construction time, which is fine because the
+module top-level only references types under `TYPE_CHECKING`.
+
+**Hard-coded vanilla slot counts** live as module constants
+(`NUM_TILES_PRIMARY=512`, `NUM_METATILES_PRIMARY=512`,
+`NUM_TILES_TOTAL=NUM_METATILES_TOTAL=1024`, `NUM_PALETTES_PRIMARY=6`,
+`NUM_PALETTES_TOTAL=13`). These mirror Porymap's defaults; a future ADR
+can surface them on `ProjectConfig` once a fork legitimately overrides
+one.
+
+**Out of scope for this slice (deferred to follow-ups):**
+
+- Overlays (`collision` / `elevation` / `grid` / `events`) raise an
+  explicit `ProjectError("overlays not yet implemented in this build")`
+  — provides a clear extension point for `render/overlays.py`.
+- `include_border=True` raises an explicit `ProjectError("include_border
+  =True not yet implemented in this build")` — extension point for the
+  border-framing helper.
+
+These raises are tested so the next slice can land the implementations
+behind the same parameter shape without breaking callers.
+
+**+31 unit tests** under `tests/unit/tools/test_rendering.py` (suite:
+401 → **432 passing**). The test file builds a complete synthetic
+project under `tmp_path` — primary + secondary tilesets each with 13
+`.pal` files, a 3x2 `map.bin` whose cells reference metatiles 0 (primary
+palette 0), 1 (primary metatile that references palette 6, i.e. a
+secondary palette slot), and 512 (secondary's metatile 0). Tests cover:
+
+- **Pixel content of the full render** — every metatile cell's centre
+  pixel asserted against the expected `(R, G, B, A)`.
+- **Structured-content metadata** — every field asserted, including
+  `tilesets`, `pixel_dimensions`, `encoding`, `byte_size`.
+- **Nearest-neighbor scale invariant** — every 4x4 block in the
+  `scale=4` render equals the matching 1x1 pixel in the `scale=1` render.
+- **Region rendering** — pixel-content + `region`/`dimensions`/
+  `pixel_dimensions` metadata + 6 parametrized invalid-bounds cases.
+- **`render_metatile`** — primary + secondary metatile rendering, the
+  default `scale=4` -> 64x64 image, companion-tileset pairing fields,
+  out-of-range metatile_id, metatile-id-not-in-bank, invalid scale,
+  missing-companion-tileset (project with only primaries).
+- **Error contract** — overlays + include_border explicit raises, scale
+  bounds (parametrized × 4), missing palette file -> `PaletteFormatError`,
+  layout with swapped primary/secondary kinds -> `ProjectError`.
+- **Registration smoke** — `build_server()` exposes the three render
+  tools alongside the 21 L1 tools (= 24 total).
+
+`ruff check .` + `ruff format --check .` + `mypy --strict src/porymap_mcp`
+(28 source files) + `pytest --no-cov` all clean.
+
+Notes for the next slice:
+
+- The border-framing helper can be added inside `layout.py` and wired
+  through `tools/rendering.py` by replacing the `_check_include_border_supported`
+  raise with the actual composition. The map's border `MapBin` is already
+  reachable via `project.read_border_bin(layout_id)`.
+- The overlay slice can plug into `tools/rendering.py` by replacing the
+  `_check_overlays_supported` raise with an overlay dispatch. The
+  assembled RGBA buffer is available before encoding; pass it (and the
+  L1 `MapBin` / `MapJson` for collision-elevation-events data) to
+  `render/overlays.py`. Remember to force `encode_png(..., force_rgba=True)`
+  because overlays produce non-opaque pixels.
+
 ### 2026-05-14 — `render/encode.py` shipped (PNG encode + ToolResult packaging)
 
 Implementation slice 5. Added `src/porymap_mcp/render/encode.py`:

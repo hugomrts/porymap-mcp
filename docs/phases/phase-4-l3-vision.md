@@ -158,6 +158,25 @@ Goldens live under `tests/fixtures/renders/`. CI loads both PNGs, converts each 
 
 ## 9. Session log
 
+### 2026-05-14 — `render/encode.py` shipped (PNG encode + ToolResult packaging)
+
+Implementation slice 5. Added `src/porymap_mcp/render/encode.py`:
+
+- `encode_png(rgba, *, area_metatiles, force_rgba=False) -> (bytes, EncodingName)` — selects palette-vs-RGBA per ADR-0010 §"PNG encoding": palette mode iff `not force_rgba` AND `area_metatiles <= 4096` AND the image is fully opaque AND has ≤ 256 distinct RGB values. Falls back to RGBA cleanly on any of those conditions. `optimize=True` only when `area_metatiles <= 4096`.
+- Palette-mode encode is **lossless** by construction: `np.unique` over packed RGB → indexed image + custom palette. No Pillow quantization, no dithering. Verified by round-trip pytest assertions.
+- `package_render_result(png_bytes, *, summary, extra=None) -> ToolResult` — wraps PNG bytes into the canonical `ToolResult(content=[Image(data=, format="png").to_image_content()], structured_content={...})` shape from ADR-0010 §"MCP return shape". FastMCP types are late-imported inside the function to keep `porymap_mcp.render` import-time free of FastMCP. `summary` from the kwarg always wins over `extra["summary"]`.
+
+New error class `PngEncodeError` for the validation surface (wrong shape/dtype, zero dim, negative area).
+
+**+18 unit tests** under `tests/unit/render/test_encode.py` (suite: 383 → **401 passing**). Coverage:
+
+- Mode selection: small opaque → palette; `force_rgba=True` → RGBA; `area > 4096` → RGBA; `area == 4096` (exactly at threshold) → palette; >256 colours → RGBA; any non-opaque pixel → RGBA.
+- Round-trip lossless: palette path (3 colour blocks), RGBA path (>256 colours), solid-image palette, forced-RGBA.
+- Validation: wrong shape, 2D input, wrong dtype, zero dim, negative area.
+- `package_render_result`: returns `ToolResult` with `ImageContent` + `image/png` mime + base64 data that round-trips as PNG; `summary` kwarg overrides `extra["summary"]`; `extra=None` accepted.
+
+`ruff check` + `ruff format --check` + `mypy --strict src/porymap_mcp` (27 source files) + `pytest --no-cov` all clean.
+
 ### 2026-05-14 — `render/layout.py` shipped (assembly slice)
 
 Implementation slice 4. Added `src/porymap_mcp/render/layout.py`:

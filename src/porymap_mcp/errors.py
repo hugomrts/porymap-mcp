@@ -76,6 +76,11 @@ class LayoutAssemblyError(PorymapMCPError):
     metatile ID, or a requested region is invalid for the grid."""
 
 
+class PngEncodeError(PorymapMCPError):
+    """L3 PNG encode precondition failed: input is not a ``uint8 (H, W, 4)``
+    RGBA array, has a zero dimension, or ``area_metatiles`` is negative."""
+
+
 class MapNotFoundError(ProjectError):
     """Referenced map name does not exist in the project."""
 

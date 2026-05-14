@@ -65,6 +65,11 @@ class PaletteFormatError(FormatError):
     declared colour count, or malformed RGB triple)."""
 
 
+class MetatilesBinFormatError(FormatError):
+    """A tileset's ``metatiles.bin`` did not match the expected layout
+    (size not a multiple of 16/24, or attribute count mismatch)."""
+
+
 class MapNotFoundError(ProjectError):
     """Referenced map name does not exist in the project."""
 

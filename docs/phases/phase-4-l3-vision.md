@@ -158,6 +158,26 @@ Goldens live under `tests/fixtures/renders/`. CI loads both PNGs, converts each 
 
 ## 9. Session log
 
+### 2026-05-14 — `compose.decode_metatile_bank` shipped (compose slice 2)
+
+Implementation slice 3 from the previous handoff. Added the metatile composer
+to `src/porymap_mcp/render/compose.py`:
+
+- `decode_metatile_bank(metatiles_bytes, attributes, tile_bank, palette_bank, *, layers, unused_tile_normal, unused_tile_covered, unused_tile_split, transparency_color)` returning `uint8[num_metatiles, 16, 16, 4]`.
+- Always composes 3 stacked layers per ADR-0010 §"Metatile composition": triple-layer mode reads all three from disk; dual-layer mode fills the missing layer from `unused_tile_*` based on the metatile's `LayerType` (Normal → bottom, Covered → top, Split → middle). Unknown `layer_type` values fall back to Normal — matches Porymap's switch-default in `src/ui/imageproviders.cpp`.
+- Tile entries unpack as `tile_id`=bits 0-9, `xflip`=bit 10, `yflip`=bit 11, `palette_num`=bits 12-15; xflip/yflip applied via numpy slice reversal.
+- Bottom-layer transparency: canvas pre-filled with `transparency_color` (GBA-quantized via `& 0xF8`) when set, else `palette[0][0]` RGB with alpha 255. Upper-layer palette-0 pixels stay alpha-0 from `decode_palette_bank`, so the background shows through correctly.
+- Out-of-range `tile_id` or `palette_num` are silently skipped — matches Porymap's behaviour when a metatile references a slot the loaded tilesets don't supply.
+- New error class: `MetatilesBinFormatError` (size not a multiple of 8×layers bytes, attribute-count mismatch, invalid `layers`).
+
+WebFetch'd Porymap's `imageproviders.cpp getMetatileImage()` to confirm: unused tiles render with palette 0 and no flips (bare `Tile(id)` ctor defaults); transparency_color falls back to palette 0 colour 0 when unset; index-0 alpha-zero is applied per tile.
+
+**+21 unit tests** under `tests/unit/render/test_compose.py` (total now 43 in this file, 351 in the suite). Coverage: each `LayerType` branch, triple-layer mode ignores `layer_type`, xflip + yflip + both, transparency_color set + quantized + fallback, layer z-order (top overrides bottom), 2×2 quad position mapping, all four validation paths, out-of-range tile/palette skipping, multiple-metatile decoding.
+
+`ruff check .` + `ruff format --check .` + `mypy --strict src/porymap_mcp` + `pytest --no-cov` all clean.
+
+**Next up** (unchanged from STATUS handoff): `render/layout.py` (W×H numpy assembly + border) → `render/encode.py` (palette-vs-RGBA + FastMCP `ToolResult` packaging) → `tools/rendering.py` registering `render_map`/`render_map_region`/`render_metatile` → `render/overlays.py` + bundled icons → `return_render` on L1 mutation tools → 5-map fidelity corpus → `examples/04_render_loop/` → `v1.0.0` tag.
+
 ### 2026-05-13 — Phase 4 opened, design locked in ADR-0010
 
 Per the L2-abandonment session (see Phase 3 session log + ADR-0009), the project pivoted directly to L3. This session ran two parallel static-source audits to populate ADR-0010:

@@ -39,7 +39,7 @@ from porymap_mcp.parsers import attributes as attributes_parser
 from porymap_mcp.parsers import metatiles as metatiles_parser
 from porymap_mcp.parsers.attributes import AttributeMasks, MetatileAttributes
 from porymap_mcp.parsers.layoutsjson import LayoutEntry
-from porymap_mcp.parsers.mapbin import MAX_METATILE_ID
+from porymap_mcp.parsers.mapbin import MAX_METATILE_ID, MapBin
 from porymap_mcp.parsers.tileset import TilesetEntry
 from porymap_mcp.project import Project
 from porymap_mcp.tools._common import load_project as _load_project
@@ -288,12 +288,20 @@ def _check_scale(scale: int) -> None:
 
 
 def _check_overlays_supported(overlays: list[str]) -> None:
-    if overlays:
-        raise ProjectError(
-            f"overlays not yet implemented in this build: got {overlays!r}. "
-            "Overlay support (collision/elevation/grid/events) lands in a "
-            "follow-up slice; render the map without overlays for now."
-        )
+    """Validate every requested overlay against the supported menu.
+
+    The actual dispatch happens inside :func:`render_map` /
+    :func:`render_map_region`; this helper exists so callers fail fast
+    on a typo *before* the (more expensive) tile/palette/metatile bank
+    decode runs.
+    """
+    if not overlays:
+        return
+    from porymap_mcp.render.overlays import SUPPORTED_OVERLAYS
+
+    for name in overlays:
+        if name not in SUPPORTED_OVERLAYS:
+            raise ProjectError(f"unknown overlay {name!r}. Supported: {SUPPORTED_OVERLAYS}.")
 
 
 # --- 1. render_map --------------------------------------------------------
@@ -324,6 +332,7 @@ def render_map(
         mapbin_to_metatile_grid,
         tile_border_around,
     )
+    from porymap_mcp.render.overlays import apply_overlays
 
     tile_bank = _build_combined_tile_bank(project, primary, secondary)
     palette_bank = _build_combined_palette_bank(project, primary, secondary)
@@ -336,6 +345,7 @@ def render_map(
     rgba = assemble(metatile_bank, grid)
 
     border_extra: dict[str, Any] = {}
+    frame_offset_px = (0, 0)
     if include_border:
         border_bin = project.read_border_bin(layout_id)
         border_grid = mapbin_to_metatile_grid(border_bin)
@@ -346,10 +356,26 @@ def render_map(
             frame_width_metatiles=DEFAULT_BORDER_FRAME_METATILES,
             frame_height_metatiles=DEFAULT_BORDER_FRAME_METATILES,
         )
+        frame_offset_px = (
+            DEFAULT_BORDER_FRAME_METATILES * 16,
+            DEFAULT_BORDER_FRAME_METATILES * 16,
+        )
         border_extra = {
             "border_dimensions": {"width": border_bin.width, "height": border_bin.height},
             "border_frame_metatiles": DEFAULT_BORDER_FRAME_METATILES,
         }
+
+    if overlays_list:
+        # Need the map's events for the "events" overlay; the L1 layer
+        # already cached the parsed map.json once via _resolve_layout above.
+        map_json = project.get_map_json(map_name)
+        apply_overlays(
+            rgba,
+            tuple(overlays_list),
+            map_bin=map_bin,
+            map_json=map_json,
+            frame_offset_px=frame_offset_px,
+        )
 
     rgba = _scale_nearest(rgba, scale)
 
@@ -360,7 +386,10 @@ def render_map(
     metatiles_w = layout_entry.width + frame_pad
     metatiles_h = layout_entry.height + frame_pad
     area = metatiles_w * metatiles_h
-    png_bytes, encoding = encode_png(rgba, area_metatiles=area)
+    # Overlays alpha-blend many intermediate RGB values; palette mode
+    # would lose to the > 256 colour cap, so force RGBA when any overlay
+    # was applied (ADR-0010 §"PNG encoding").
+    png_bytes, encoding = encode_png(rgba, area_metatiles=area, force_rgba=bool(overlays_list))
 
     summary = (
         f"Rendered {map_name} ({layout_entry.width}x{layout_entry.height} metatiles, "
@@ -422,6 +451,7 @@ def render_map_region(
 
     from porymap_mcp.render.encode import encode_png, package_render_result
     from porymap_mcp.render.layout import assemble_region, mapbin_to_metatile_grid
+    from porymap_mcp.render.overlays import apply_overlays
 
     tile_bank = _build_combined_tile_bank(project, primary, secondary)
     palette_bank = _build_combined_palette_bank(project, primary, secondary)
@@ -432,12 +462,48 @@ def render_map_region(
     map_bin = project.read_map_bin(layout_id)
     grid = mapbin_to_metatile_grid(map_bin)
     rgba = assemble_region(metatile_bank, grid, x1=x1, y1=y1, x2=x2, y2=y2)
+
+    if overlays_list:
+        # Region overlays operate on a sub-buffer of the layout. We build a
+        # MapBin for the region (so collision/elevation/grid cover the
+        # right cells) and pass the full map_json — events outside the
+        # region get clipped silently by the overlay's bounds check, and
+        # the offset is the region's top-left in source coordinates,
+        # mirrored back to the sub-buffer's (0, 0).
+        region_mapbin = MapBin(
+            width=x2 - x1,
+            height=y2 - y1,
+            tiles=tuple(row[x1:x2] for row in map_bin.tiles[y1:y2]),
+        )
+        # Shift event coords back into the sub-buffer's frame by passing a
+        # negative offset (events.x*16 + offset_x → relative-to-region).
+        events_offset_px = (-y1 * 16, -x1 * 16)
+        map_json = project.get_map_json(map_name)
+        # collision/elevation/grid get the region-clipped map_bin so they
+        # paint inside the sub-buffer; events get the unclipped map_json
+        # with a negative offset so out-of-region events naturally clip.
+        apply_overlays(
+            rgba,
+            tuple(o for o in overlays_list if o != "events"),
+            map_bin=region_mapbin,
+            map_json=map_json,
+            frame_offset_px=(0, 0),
+        )
+        if "events" in overlays_list:
+            apply_overlays(
+                rgba,
+                ("events",),
+                map_bin=region_mapbin,
+                map_json=map_json,
+                frame_offset_px=events_offset_px,
+            )
+
     rgba = _scale_nearest(rgba, scale)
 
     region_w = x2 - x1
     region_h = y2 - y1
     area = region_w * region_h
-    png_bytes, encoding = encode_png(rgba, area_metatiles=area)
+    png_bytes, encoding = encode_png(rgba, area_metatiles=area, force_rgba=bool(overlays_list))
 
     summary = (
         f"Rendered {map_name} region ({x1},{y1})-({x2},{y2}) "
@@ -577,10 +643,11 @@ def _tool_render_map(
     Args:
       project_path: project root.
       map_name: MAP_* constant. Get from list_maps.
-      overlays: list of overlay names (collision/elevation/grid/events).
-        Not yet implemented in this build — pass [] or omit.
-      include_border: render the wrap-around border frame. Not yet
-        implemented; pass False or omit.
+      overlays: subset of {"collision", "elevation", "grid", "events"}.
+        Drawn alpha-blended on top of the base render, in order. Forces
+        RGBA PNG output. Default [] (none).
+      include_border: render the wrap-around border frame (7 metatiles
+        per side, Porymap default). Default False.
       scale: integer up-scale factor (1..8), nearest-neighbor. Default 1.
     """
     return render_map(
@@ -614,7 +681,9 @@ def _tool_render_map_region(
       map_name: MAP_* constant.
       x1, y1: top-left (inclusive) corner of the region.
       x2, y2: bottom-right (exclusive) corner.
-      overlays: not yet implemented in this build.
+      overlays: subset of {"collision", "elevation", "grid", "events"}.
+        Same semantics as render_map; clipped to the region. Events
+        outside the region are silently dropped. Forces RGBA output.
       scale: integer up-scale factor (1..8).
     """
     return render_map_region(

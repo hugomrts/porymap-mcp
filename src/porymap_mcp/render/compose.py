@@ -192,7 +192,7 @@ def _parse_jasc(text: str, source: Path) -> np.ndarray:
                 f"{source} line {4 + i}: RGB component out of [0, 255]: {line!r}"
             )
         alpha = 0 if i == 0 else 255
-        out[i] = (r & 0xF8, g & 0xF8, b & 0xF8, alpha)
+        out[i] = (r, g, b, alpha)
     return out
 
 
@@ -292,12 +292,12 @@ def decode_metatile_bank(
             f"{len(attributes)} attributes were provided"
         )
 
-    # Background fill: transparency_color (GBA-quantized) or palette[0][0] RGB.
+    # Background fill: transparency_color or palette[0][0] RGB.
     if transparency_color is not None:
         r = (transparency_color >> 16) & 0xFF
         g = (transparency_color >> 8) & 0xFF
         b = transparency_color & 0xFF
-        bg = np.array([r & 0xF8, g & 0xF8, b & 0xF8, 0xFF], dtype=np.uint8)
+        bg = np.array([r, g, b, 0xFF], dtype=np.uint8)
     else:
         p00 = palette_bank[0, 0]
         bg = np.array([p00[0], p00[1], p00[2], 0xFF], dtype=np.uint8)
@@ -316,11 +316,24 @@ def decode_metatile_bank(
     num_tiles = int(tile_bank.shape[0])
     num_palettes = int(palette_bank.shape[0])
 
-    # The "unused" entry: tile_id only; palette 0, no flips (Porymap's bare
-    # ``Tile(id)`` constructor defaults — see ``src/ui/imageproviders.cpp``).
-    fill_normal = (unused_tile_normal, False, False, 0)
-    fill_covered = (unused_tile_covered, False, False, 0)
-    fill_split = (unused_tile_split, False, False, 0)
+    # The "unused" entry is a full packed tile-entry word (same bit layout
+    # as the metatile's own entries: tile_id in bits 0-9, xflip 10, yflip
+    # 11, palette 12-15). Verified empirically against the L3 fidelity
+    # corpus (case 04 / pokeemerald-expansion uses
+    # ``unused_tile_normal=0x3014`` = palette 3, tile 20 — treating it as
+    # a bare tile_id of 12308 sends it out-of-range and silently skips
+    # the bottom-layer fill).
+    def _decode_unused(word: int) -> tuple[int, bool, bool, int]:
+        return (
+            word & 0x03FF,
+            bool((word >> 10) & 0x1),
+            bool((word >> 11) & 0x1),
+            (word >> 12) & 0x0F,
+        )
+
+    fill_normal = _decode_unused(unused_tile_normal)
+    fill_covered = _decode_unused(unused_tile_covered)
+    fill_split = _decode_unused(unused_tile_split)
 
     for m in range(num_metatiles):
         layer_a = _entries_at(tile_ids, xflips, yflips, palette_nums, m, 0, 4)

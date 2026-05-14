@@ -69,10 +69,13 @@ NUM_PALETTES_TOTAL: Final = 13
 MAX_RENDER_SCALE: Final = 8
 
 #: Default frame thickness, in metatile units, applied per side when
-#: ``include_border=True``. Mirrors Porymap's "border preview" default
-#: (``BorderMetatilesData::DEFAULT_BORDER_SIZE`` in
-#: ``src/ui/maplayout.cpp``).
-DEFAULT_BORDER_FRAME_METATILES: Final = 7
+#: ``include_border=True``. **Asymmetric** to mirror Porymap's
+#: ``Metatile::pixelsPerMetatile`` view-distance computation: 7 metatiles
+#: of horizontal margin (left and right), 5 of vertical (top and bottom).
+#: These correspond to half of the GBA visible screen area (15x10
+#: metatiles → 7.5x5 → rounded to 7x5).
+DEFAULT_BORDER_FRAME_METATILES_HORIZONTAL: Final = 7
+DEFAULT_BORDER_FRAME_METATILES_VERTICAL: Final = 5
 
 
 # --- Internal helpers -----------------------------------------------------
@@ -353,16 +356,19 @@ def render_map(
         rgba = tile_border_around(
             rgba,
             border_rgba,
-            frame_width_metatiles=DEFAULT_BORDER_FRAME_METATILES,
-            frame_height_metatiles=DEFAULT_BORDER_FRAME_METATILES,
+            frame_width_metatiles=DEFAULT_BORDER_FRAME_METATILES_HORIZONTAL,
+            frame_height_metatiles=DEFAULT_BORDER_FRAME_METATILES_VERTICAL,
         )
         frame_offset_px = (
-            DEFAULT_BORDER_FRAME_METATILES * 16,
-            DEFAULT_BORDER_FRAME_METATILES * 16,
+            DEFAULT_BORDER_FRAME_METATILES_VERTICAL * 16,
+            DEFAULT_BORDER_FRAME_METATILES_HORIZONTAL * 16,
         )
         border_extra = {
             "border_dimensions": {"width": border_bin.width, "height": border_bin.height},
-            "border_frame_metatiles": DEFAULT_BORDER_FRAME_METATILES,
+            "border_frame_metatiles": {
+                "horizontal": DEFAULT_BORDER_FRAME_METATILES_HORIZONTAL,
+                "vertical": DEFAULT_BORDER_FRAME_METATILES_VERTICAL,
+            },
         }
 
     if overlays_list:
@@ -382,9 +388,10 @@ def render_map(
     # area_metatiles is the threshold for palette-vs-RGBA mode. With border
     # included the rendered image grows by the frame; encode_png compares
     # *metatiles*, so reflect the full output extent here.
-    frame_pad = 2 * DEFAULT_BORDER_FRAME_METATILES if include_border else 0
-    metatiles_w = layout_entry.width + frame_pad
-    metatiles_h = layout_entry.height + frame_pad
+    horiz_pad = 2 * DEFAULT_BORDER_FRAME_METATILES_HORIZONTAL if include_border else 0
+    vert_pad = 2 * DEFAULT_BORDER_FRAME_METATILES_VERTICAL if include_border else 0
+    metatiles_w = layout_entry.width + horiz_pad
+    metatiles_h = layout_entry.height + vert_pad
     area = metatiles_w * metatiles_h
     # Overlays alpha-blend many intermediate RGB values; palette mode
     # would lose to the > 256 colour cap, so force RGBA when any overlay

@@ -1,7 +1,7 @@
 # ADR-0010: L3 renderer — decode pipeline, image stack, and fidelity criterion
 
-- **Status:** Accepted
-- **Date:** 2026-05-13
+- **Status:** Accepted (with 2026-05-14 corrections from corpus validation — see §"Empirical corrections")
+- **Date:** 2026-05-13 (initial), 2026-05-14 (addendum after corpus validation)
 - **Deciders:** project owner
 
 ---
@@ -200,6 +200,114 @@ The `LayerType` enum and attribute-mask handling stay in `parsers/` (already shi
 - **Neutral:**
   - Phase 4 phase doc §3 (module layout) and §7 (fidelity criterion) get updated to match this ADR.
   - Phase 4 phase doc OQ2 (animations) and OQ3 (connections) are resolved by this ADR.
+
+---
+
+## Empirical corrections (2026-05-14, after corpus validation)
+
+Three claims in this ADR were proven wrong by the L3 fidelity corpus
+(cases 1-3: Littleroot Town, Route 101, Granite Cave 1F). After fixing
+each, the renderer produces 0/261120 differing pixels vs Porymap's
+own export on every measured case. Code in `src/porymap_mcp/render/`
+and the dependent unit tests reflect the corrected behaviour; the rest
+of this ADR (decode pipeline, layer composition, encode strategy,
+return shape) stands unchanged.
+
+### Correction 1 — No `& 0xF8` GBA quantization
+
+§"Context" item "GBA hardware quantizes RGB to 5 bits per channel"
+and §"Decision" item 2 ("Each RGB component is masked `& 0xF8`")
+described an over-engineered safety belt. **Empirically, Porymap does
+not quantize JASC palette values on export.** pokeemerald's pal files
+already contain the artist's chosen 8-bit RGB (e.g. the grass entry
+`57 139 49` is not on a 5-bit boundary), and Porymap propagates those
+bytes byte-for-byte through to the rendered PNG. The hardware 5-bit
+truncation is what happens at runtime *inside the GBA* when the LCD
+driver clocks pixels out — it does not apply to the offline editor's
+view of the same palette.
+
+`render/compose.py` no longer applies any quantization mask. The
+`transparency_color` config key is also propagated unchanged. Two
+unit tests were inverted to enforce the new contract:
+`test_jasc_values_passthrough_unchanged` and
+`test_misaligned_5bit_values_preserved` (both in `test_compose.py`).
+
+§"Risks" item 5 (which warned about forgetting the masking) is now
+moot — the test it referenced (`test_palette_round_trip`) is replaced
+by the two passthrough tests above.
+
+### Correction 2 — Border tiling phase is anchored on the map's top-left, not the output's
+
+`render/layout.py::tile_border_around` originally tiled the border
+from output pixel `(0, 0)` outward, putting `border[0][0]` at the
+top-left corner of the framed image. Wrong: Porymap anchors the phase
+on the **map's** top-left corner, so `border[0][0]` lands at output
+pixel `(fw_px, fh_px)` and tiles outside the map's bounding box cycle
+backwards through the border's metatiles via modulo.
+
+For a 2x2 `border.bin` with four distinct metatiles (the canonical
+Littleroot tree-cluster border), the difference between the two
+phases is the difference between getting *any* pixel right or *no*
+pixels right. Fix is one line — subtract the frame offset from the
+output coordinates before the modulo.
+
+### Correction 3 — Border frame is asymmetric (7 horizontal x 5 vertical metatiles), not 7x7
+
+§"Decision" doesn't pin the frame size, but `tools/rendering.py`
+shipped with `DEFAULT_BORDER_FRAME_METATILES = 7` (symmetric).
+**Porymap's `Metatile::pixelsPerMetatile` view distance is 7
+horizontal x 5 vertical metatiles per side**, mirroring half of the
+GBA visible screen area (240/16 = 15 metatiles wide x 160/16 = 10
+metatiles tall, halved and rounded down to the nearest integer).
+
+Constants split:
+- `DEFAULT_BORDER_FRAME_METATILES_HORIZONTAL = 7`
+- `DEFAULT_BORDER_FRAME_METATILES_VERTICAL = 5`
+
+`structured_content["border_frame_metatiles"]` is now a dict with
+`{"horizontal": 7, "vertical": 5}` keys instead of a single int.
+Mutation tools' `return_render` path inherits the asymmetric default
+through the same constants.
+
+### Correction 4 — `unused_tile_*` config keys are packed tile-entry words, not bare tile ids
+
+`render/compose.py::decode_metatile_bank` originally treated
+`unused_tile_normal`, `unused_tile_covered`, and `unused_tile_split`
+from the project config as raw `tile_id` integers, with palette
+hardcoded to 0 and no flips:
+
+    fill_normal = (unused_tile_normal, False, False, 0)  # WRONG
+
+This works for the vanilla pokeemerald default
+(`unused_tile_normal=0x0000`, which decodes the same way both wrong
+and right) but breaks the moment a fork or expansion sets a non-zero
+value with a non-zero palette. pokeemerald-expansion's
+`unused_tile_normal=0x3014` is a full packed tile-entry word with the
+exact same bit layout as a metatile's own entries (tile_id 0-9, xflip
+bit 10, yflip bit 11, palette 12-15). The "wrong" decode treats
+`0x3014` as `tile_id=12308`, which is well above the 1024-tile
+combined bank cap; the bottom-layer fill silently fell through the
+`if tid >= num_tiles: continue` guard and exposed the
+`transparency_color=0x000000` background. Only 2 pixels in
+`BattleFrontier_OutsideEast` (out of 1.8M) showed black where Porymap
+shows the grey of palette 3 indices 3 and 4 — the actual decoded
+`unused_tile_normal`.
+
+Fix: decode `unused_tile_*` via the same bit unpacking as a regular
+tile entry (one helper, three call sites). After the fix, case 04
+matches Porymap byte-for-byte (0/1805312 differing pixels).
+
+### Updated risk inventory
+
+The four corrections above are validated end-to-end by the
+fidelity-corpus test runner (`tests/integration/test_fidelity.py`).
+All 5 corpus cases pass pixel-identical against Porymap's own export
+(0 differing pixels each). The single highest residual risk is some
+other Porymap-specific behaviour the current 5-case corpus has not
+yet exposed (a *Correction 5* we haven't met). Mitigation: CI fails
+the corpus on a single mismatching pixel, so a regression cannot
+ship silently, and adding a new case is a one-line edit in
+`test_fidelity.py::CASES` plus one Porymap export.
 
 ---
 

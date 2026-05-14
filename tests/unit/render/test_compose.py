@@ -149,23 +149,30 @@ class TestDecodePaletteBank:
         assert bank.shape == (1, PALETTE_SIZE, 4)
         assert bank.dtype == np.uint8
 
-    def test_gba_5bit_quantization_truncates_low_bits(self, tmp_path: Path) -> None:
-        # All channels = 0xFF (max) -> 0xF8 after & 0xF8.
+    def test_jasc_values_passthrough_unchanged(self, tmp_path: Path) -> None:
+        # Porymap does not apply GBA 5-bit hardware quantization to JASC
+        # palette entries on export — pokeemerald's pal files already
+        # store the artist's chosen 8-bit RGB, and Porymap propagates
+        # those bytes byte-for-byte through to the rendered PNG. Verified
+        # against the L3 fidelity corpus (cases 1-3) — see ADR-0010 §"GBA
+        # quantization" addendum.
         pal = tmp_path / "00.pal"
         pal.write_text(_make_jasc([(255, 255, 255)] * PALETTE_SIZE), encoding="utf-8")
 
         bank = decode_palette_bank([pal])
-        # Index 0 is transparent (alpha 0); RGB still quantised.
-        assert tuple(bank[0, 0]) == (0xF8, 0xF8, 0xF8, 0)
-        # Indices 1..15 are opaque, RGB quantised.
+        # Index 0 is transparent (alpha 0); RGB preserved as 255.
+        assert tuple(bank[0, 0]) == (255, 255, 255, 0)
         for i in range(1, PALETTE_SIZE):
-            assert tuple(bank[0, i]) == (0xF8, 0xF8, 0xF8, 255)
+            assert tuple(bank[0, i]) == (255, 255, 255, 255)
 
-    def test_quantization_misaligned_values(self, tmp_path: Path) -> None:
-        # 7 -> 0 (low 3 bits zeroed), 15 -> 8, 16 -> 16, 23 -> 16, 24 -> 24, 255 -> 248.
-        cases = [(7, 0), (15, 8), (16, 16), (23, 16), (24, 24), (255, 248)]
-        colours = [(r, g, b) for r, g, b in [(c, c, c) for c, _ in cases]]
-        # Pad up to PALETTE_SIZE
+    def test_misaligned_5bit_values_preserved(self, tmp_path: Path) -> None:
+        # Values that don't sit on a 5-bit boundary (e.g. 41, 139, 197 —
+        # commonplace in pokeemerald pal files) are kept verbatim, NOT
+        # quantized down. The earlier behaviour (truncate to multiples
+        # of 8) broke the fidelity test on every grass / cave / building
+        # metatile.
+        cases = [(7, 7), (15, 15), (16, 16), (23, 23), (24, 24), (255, 255), (41, 41), (139, 139)]
+        colours = [(c, c, c) for c, _ in cases]
         colours.extend([(0, 0, 0)] * (PALETTE_SIZE - len(colours)))
         pal = tmp_path / "00.pal"
         pal.write_text(_make_jasc(colours), encoding="utf-8")
@@ -581,8 +588,10 @@ class TestDecodeMetatileBankTransparencyFill:
         )
         assert np.all(bank[0] == np.array([0x80, 0xC0, 0xF0, 255], dtype=np.uint8))
 
-    def test_transparency_color_quantization_drops_low_3_bits(self) -> None:
-        # 0xFF -> 0xF8 per GBA quantization (ADR-0010 Risk 5).
+    def test_transparency_color_passthrough_unchanged(self) -> None:
+        # Porymap propagates the configured transparency_color verbatim
+        # (no GBA quantization), matching ADR-0010 §"GBA quantization"
+        # addendum verified against the L3 fidelity corpus.
         bank = decode_metatile_bank(
             _transparent_dual(),
             [_attr(layer_type=0)],
@@ -594,7 +603,7 @@ class TestDecodeMetatileBankTransparencyFill:
             unused_tile_split=0,
             transparency_color=0xFFFFFF,
         )
-        assert np.all(bank[0] == np.array([0xF8, 0xF8, 0xF8, 255], dtype=np.uint8))
+        assert np.all(bank[0] == np.array([0xFF, 0xFF, 0xFF, 255], dtype=np.uint8))
 
     def test_transparency_color_none_falls_back_to_palette_zero_zero(self) -> None:
         # Custom palette[0][0] RGB; alpha 0 (per decode_palette_bank).

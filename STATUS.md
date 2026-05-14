@@ -4,8 +4,10 @@
 > **Always read this first** when starting a new Claude Code session.
 > Updated at the end of every session that moves the project forward.
 
-**Last updated:** 2026-05-13
-**Last session:** **Phase 3 abandoned, Phase 4 (L3 — Vision) opened, design locked, and the first two implementation slices shipped.** First third of the session: static-source audit established L2 is not achievable (no JS file-read primitives, native `QFileSystemWatcher` excludes `map.bin`/`map.json`, no `map.reload()` Q_INVOKABLE); abandoned in [ADR-0009](docs/decisions/0009-abandon-l2-live-porymap.md). Versioning: `v0.2.0` intentionally skipped; next ship is `v1.0.0`. Second third: two parallel audits of the L3 decode pipeline and the Python rendering stack produced [ADR-0010](docs/decisions/0010-l3-renderer-design.md) — **numpy + Pillow** under the `render` extra; read `tiles.png` + JASC `.pal` (skip compiled `.4bpp`/`.gbapal`); apply **GBA 5-bit palette quantization** (`& 0xF8`); always compose 3 metatile layers, filling the missing one in dual-layer mode from `unused_tile_{normal,covered,split}`; pixel-identical RGBA fidelity (not byte-identical PNG); MCP shape `ToolResult(content=[Image(...)], structured_content={...})`; no connection rendering in v1.0; `tile.py` + `metatile.py` merged into `compose.py`. Last third: **shipped two implementation slices** — (1) L3 foundation: numpy added to the `render` extra, ProjectConfig extended with `transparency_color`, `unused_tile_{normal,covered,split}` (commit `c3a5121`, +8 tests); (2) `compose.py` slice 1 — `decode_tile_bank` and `decode_palette_bank` with GBA 5-bit quantization, palette-0 transparency rule, and full edge-case coverage (commit `2304bf8`, +22 tests). New error classes `TilesPngFormatError` and `PaletteFormatError`. **330 passing tests** (was 300 at session start), ruff + ruff format + mypy --strict all clean. Branch `claude/continue-project-Bqrxp` has 4 commits ahead of `main`; PR open for merge.
+**Last updated:** 2026-05-14
+**Last session:** **`render/encode.py` shipped — PNG encode + FastMCP `ToolResult` packaging (slice 5 of L3).** Same branch (`claude/continue-project-EPgUS`), one commit on top of the layout slice. `encode_png(rgba, *, area_metatiles, force_rgba=False) -> (bytes, EncodingName)` picks palette-vs-RGBA per ADR-0010 §"PNG encoding": palette iff `not force_rgba` AND `area_metatiles <= 4096` AND image is fully opaque AND has ≤ 256 distinct RGBs; RGBA otherwise. **Palette mode is lossless** by construction (`np.unique` over packed RGB → indexed image + custom palette, no Pillow quantize, no dithering) — verified by pixel-identical round-trip tests. `package_render_result(png, *, summary, extra=None)` returns the canonical `ToolResult(content=[Image(...)], structured_content={...})` shape; FastMCP types are late-imported inside the function so the `render` package stays FastMCP-free at module-import time. New error class `PngEncodeError`. **+18 tests** in `tests/unit/render/test_encode.py` (suite: 383 → **401 passing**). Coverage: mode selection (all 6 branches), 4 round-trip cases, 5 validation cases, 3 packaging cases. `ruff check` + `ruff format --check` + `mypy --strict src/porymap_mcp` (27 source files) + `pytest --no-cov` all clean. Previous slice (layout) earlier in this branch:
+
+Slice 4 — `render/layout.py` (assembly): Builds on the same branch (`claude/continue-project-EPgUS`) right after the `decode_metatile_bank` commit. New module `src/porymap_mcp/render/layout.py` ships the pure-numpy layout primitive (ADR-0010 §"Layout assembly"): `assemble(bank, grid)` does a single fancy-index + reshape + transpose to produce a C-contiguous `uint8[H*16, W*16, 4]` RGBA image; `assemble_region(bank, grid, *, x1, y1, x2, y2)` is the strict half-open metatile-coord slice for partial renders; `clip_region(grid_shape, ...)` clamps a requested region to bounds (raises only when clipped-to-empty); `mapbin_to_metatile_grid(mb)` adapts the L1 parser's `MapBin` into the `uint16[H, W]` grid this module consumes (collision + elevation dropped — overlay concerns). New error class `LayoutAssemblyError`. **+32 tests** in `tests/unit/render/test_layout.py` (suite: 351 → **383 passing**). Coverage: full assemble pixel-by-pixel + within-tile pixel order + C-contiguous output + multi-dtype grids; full validation (bank shape/dtype/empty, grid shape/dtype/empty, out-of-range/negative IDs); region extraction + 6 parametrized invalid-bounds cases; `clip_region` underflow/overrun/engulf/empty; `mapbin_to_metatile_grid` round-trip via assemble. `ruff check` + `ruff format --check` + `mypy --strict src/porymap_mcp` + `pytest --no-cov` all clean. Border framing (Porymap "include border" wrap-around) deferred to the `tools/rendering.py` wiring slice — the primitive already renders any `border.bin` grid since it's just a small `MapBin`.
 
 ---
 
@@ -30,12 +32,12 @@ PyPI publish (Phase 5) remains deferred per owner directive: publish only once L
 - `docs/phases/` — phase 1 closed, phase 2 closed (v0.1.0 shipped), phase 3 abandoned (ADR-0009), phase 4 active, phase 5 deferred.
 - `docs/decisions/` — ADRs 0001–0010 (0009 abandons L2, 0010 locks the L3 renderer design).
 - `pyproject.toml`, `LICENSE`, `README.md` (with "first map in 5 minutes"), `.pre-commit-config.yaml`, `.github/workflows/ci.yml`. `render` optional extra carries `Pillow>=10.0` + `numpy>=1.26` (ADR-0010); mypy override added for `numpy.*` and `PIL.*`.
-- `src/porymap_mcp/` — L1 surface (parsers, project, tools, prefabs, 21 L1 tools) plus the new `render/` package: `__init__.py` re-exports + `compose.py` with `decode_tile_bank` and `decode_palette_bank` (ADR-0010 §"Source files read" #1 + #2). `ProjectConfig` now reads `transparency_color`, `unused_tile_normal`, `unused_tile_covered`, `unused_tile_split`. Errors gain `TilesPngFormatError` and `PaletteFormatError`.
-- `tests/` — 330 passing cases (308 L1 + 22 new for compose). Synthetic PNG + JASC `.pal` fixtures are built in-test, no checked-in binaries.
+- `src/porymap_mcp/` — L1 surface (parsers, project, tools, prefabs, 21 L1 tools) plus the `render/` package: `__init__.py` re-exports + `compose.py` (`decode_tile_bank`, `decode_palette_bank`, `decode_metatile_bank` — ADR-0010 §"Source files read" + §"Metatile composition") + `layout.py` (`assemble`, `assemble_region`, `clip_region`, `mapbin_to_metatile_grid` — ADR-0010 §"Layout assembly") + `encode.py` (`encode_png`, `package_render_result`, `PALETTE_MODE_MAX_METATILES`, `EncodingName` — ADR-0010 §"PNG encoding" + §"MCP return shape"). `ProjectConfig` reads `transparency_color`, `unused_tile_normal`, `unused_tile_covered`, `unused_tile_split`. Errors gain `TilesPngFormatError`, `PaletteFormatError`, `MetatilesBinFormatError`, `LayoutAssemblyError`, and `PngEncodeError`.
+- `tests/` — 401 passing cases (308 L1 + 43 in `test_compose.py` + 32 in `test_layout.py` + 18 in `test_encode.py`). Synthetic PNG + JASC `.pal` + in-memory tile/palette/metatile/grid banks are built in-test, no checked-in binaries.
 
-**Not yet for L3** (next slices): `compose.decode_metatile_bank` with the 3-layer `unused_tile_*` fill rule; `layout.py` (W×H assembly + border); `encode.py` (palette-vs-RGBA + FastMCP `ToolResult` packaging); `tools/rendering.py` (`render_map`, `render_map_region`, `render_metatile`); `overlays.py` + bundled icon assets; `return_render` parameter on L1 mutation tools; 5-map fidelity corpus under `tests/fixtures/renders/`; `examples/04_render_loop/`.
+**Not yet for L3** (next slices): `tools/rendering.py` (`render_map`, `render_map_region`, `render_metatile`); the "wrap-around border frame" composition for `include_border=True`; `overlays.py` + bundled icon assets; `return_render` parameter on L1 mutation tools; 5-map fidelity corpus under `tests/fixtures/renders/`; `examples/04_render_loop/`.
 
-**Verified locally + in CI:** `python -m pytest --no-cov` → 330 passed; `ruff check .` → clean; `ruff format --check .` → clean; `mypy --strict src/porymap_mcp` → clean on 25 source files.
+**Verified locally + in CI:** `python -m pytest --no-cov` → 401 passed; `ruff check .` → clean; `ruff format --check .` → clean; `mypy --strict src/porymap_mcp` → clean on 27 source files.
 
 **Integration-tested:** `rh-hideout/pokeemerald-expansion` (L1 only — no L3 integration test yet; the fidelity corpus is the next big chunk).
 
@@ -67,49 +69,38 @@ Resolved decisions live under [`docs/decisions/`](docs/decisions/). No open deci
 
 ## Next session pickup (L3 implementation in progress)
 
-Branch with this session's work: `claude/continue-project-Bqrxp`. 4 commits ahead of `main`; PR open. Start by merging that PR, then check out `main` fresh.
+Branch with the last session's work: `claude/continue-project-EPgUS` — opened as [PR #10](https://github.com/hugomrts/porymap-mcp/pull/10) (3 commits: `53ae8fb` + `475543b` + `efc4aac`). **Before starting work**: verify the PR is merged, then `git checkout main && git pull` for a clean tree. If the PR is still open, the next session's job is *just to land it* (review CI, fix any drift) — do not start the `tools/rendering.py` slice on a stale base.
 
 **Done in last session** (don't redo):
-- ✅ ADR-0009: abandon L2. ADR-0010: lock L3 renderer design.
-- ✅ Phase 3 doc marked Abandoned; phase 4 doc marked Active with the renderer spec.
-- ✅ `pyproject.toml`: `render` extra now `["Pillow>=10.0", "numpy>=1.26"]`. mypy overrides for `numpy.*` and `PIL.*`.
-- ✅ `ProjectConfig`: 4 new typed accessors (`transparency_color`, `unused_tile_{normal,covered,split}`) + `_parse_rgb` helper.
-- ✅ `src/porymap_mcp/render/compose.py`: `decode_tile_bank` (tiles.png → `uint8[num_tiles, 8, 8]` palette indices, `& 0x0F` mask, row-major slicing) and `decode_palette_bank` (JASC `.pal` → `uint8[num_palettes, 16, 4]` RGBA with GBA `& 0xF8` quantization and palette-0 alpha-0).
-- ✅ New error classes: `TilesPngFormatError`, `PaletteFormatError`.
-- ✅ 22 new tests under `tests/unit/render/test_compose.py`. Total 330 passing. ruff + format + mypy --strict clean.
+- ✅ Slice 3 (commit `53ae8fb`): `compose.decode_metatile_bank` — full ADR-0010 §"Metatile composition" rule (3 layers, LayerType→unused_tile_* mapping, xflip/yflip, GBA-quantized transparency_color fill, out-of-range skip). New error `MetatilesBinFormatError`. +21 tests.
+- ✅ Slice 4 (commit `475543b`): `render/layout.py` — `assemble`, `assemble_region`, `clip_region`, `mapbin_to_metatile_grid` (ADR-0010 §"Layout assembly"). Single fancy-index + reshape + transpose for the vectorized paste; C-contiguous output. New error `LayoutAssemblyError`. +32 tests.
+- ✅ Slice 5 (this commit): `render/encode.py` — `encode_png(rgba, *, area_metatiles, force_rgba=False)` + `package_render_result(...)` (ADR-0010 §"PNG encoding" + §"MCP return shape"). Palette mode is lossless by construction (`np.unique` over packed RGB → indexed image + custom palette). FastMCP types late-imported inside `package_render_result` to keep `porymap_mcp.render` FastMCP-free at import time. New error `PngEncodeError`. +18 tests.
+- ✅ `render/__init__.py` re-exports all three slices' public symbols.
+- ✅ Suite: **401 passing**. `ruff check .` + `ruff format --check .` + `mypy --strict src/porymap_mcp` (27 source files) + `pytest --no-cov` clean.
 
 **Up next, in order:**
 
-1. **`compose.decode_metatile_bank`** — the third decoder. Reads `metatiles.bin` (16 bytes/metatile dual-layer, 24 bytes/metatile triple-layer; auto-detected from file size against `num_metatiles`) and `metatile_attributes.bin` (already parsed by `parsers/attributes.py` for the LayerType bits). For each metatile, compose a `16×16×4` RGBA image:
-   - Triple-layer mode: 3 layers from disk (tiles 0–3 / 4–7 / 8–11).
-   - Dual-layer mode: 2 layers from disk + 1 fill layer from `ProjectConfig.unused_tile_{normal,covered,split}` based on the metatile's LayerType (table in ADR-0010 §"Metatile composition").
-   - Apply tile xflip/yflip from the 2-byte tile entry (bits 10/11; ADR-0010 §"Metatile composition").
-   - Apply palette index 0 transparency on the **upper two** layers; the **bottom** layer fills its palette-0 pixels with the `transparency_color` config value when set, else palette-0-of-palette-0's RGB.
-   - Signature suggestion: `decode_metatile_bank(metatiles_bytes, attributes, tile_bank, palette_bank, *, layers, unused_tile_normal, unused_tile_covered, unused_tile_split, transparency_color) -> np.ndarray[num_metatiles, 16, 16, 4]`.
-   - Tests: 4-metatile synthetic tileset; cover each LayerType branch; cover xflip+yflip; cover triple-layer; cover unused-tile fill; cover transparency_color fallback.
+1. **`tools/rendering.py`** (new module) — wire `render_map`, `render_map_region`, `render_metatile` per phase-4 §4. This is the slice that finally consumes `compose` + `layout` + `encode` end-to-end. Tool signatures (from phase-4 §4): `render_map(project_path, map_name, *, overlays=[], include_border=False, scale=1)`; `render_map_region(project_path, map_name, x1, y1, x2, y2, *, overlays=[], scale=1)`; `render_metatile(project_path, tileset_name, metatile_id, *, scale=4)`. Return shape via `package_render_result`. Register in `server.py`'s `build_server()`; update the "all-N-tools-registered" assertion in `tests/unit/test_server.py` (currently 21 → 24). The render-extra import (numpy + Pillow) should be deferred so unrelated tools work without the extra installed — see `compose.py` import pattern.
 
-2. **`render/layout.py`** — `assemble_layout(metatile_bank, metatile_grid)` via numpy advanced indexing: `out[y*16:(y+1)*16, x*16:(x+1)*16] = metatile_bank[grid[y, x]]`. Add the same path for `border.bin`. Crop / region support for `render_map_region` belongs here too.
+2. **Border framing helper** (deferred from prior plan, still small): when `tools/rendering.py` ships `include_border=True`, the map RGBA needs to be wrapped by a tiled border image. Add `tile_border_around(map_rgba, border_rgba, *, frame_width_metatiles, frame_height_metatiles)` in `layout.py`. Defer pixel-perfect fidelity until the fidelity corpus is in place. Porymap "border preview" config defaults to 7 metatiles per side.
 
-3. **`render/encode.py`** — palette mode for area ≤ 4096 metatiles and no overlays; RGBA otherwise. FastMCP `ToolResult(content=[Image(data=png_bytes, format="png").to_image_content()], structured_content={...})` per ADR-0010 §"MCP return shape".
+4. **`render/overlays.py`** — `collision`, `elevation`, `grid`, `events`. Forces RGBA output. Bundle 12×12 PNG icons under `src/porymap_mcp/render/assets/icons/` (warp, object, sign, trigger, heal). Update `pyproject.toml` `[tool.hatch.build.targets.wheel]` to include the assets dir.
 
-4. **`tools/rendering.py`** (new module) — wire `render_map`, `render_map_region`, `render_metatile` per phase-4 §4. Register in `server.py`'s `build_server()`; update the "all-N-tools-registered" assertions in the existing tool tests.
+5. **`return_render: bool = False` on L1 mutation tools** — phase-4 §4 requires this on every paint/event tool. When `True`, the response carries the `Image` content block in addition to the existing structured dict.
 
-5. **`render/overlays.py`** — `collision`, `elevation`, `grid`, `events`. Forces RGBA output. Bundle 12×12 PNG icons under `src/porymap_mcp/render/assets/icons/` (warp, object, sign, trigger, heal). Update `pyproject.toml` `[tool.hatch.build.targets.wheel]` to include the assets dir.
+6. **5-map fidelity corpus** under `tests/fixtures/renders/`. Each entry has: (a) a project state (synthetic, or a tiny vendored vanilla-pokeemerald slice), (b) a Porymap reference PNG produced with **scale 1×, show connections = off, no overlays, include border per case**. CI compares `np.array_equal(decoded(ours), decoded(reference))`. A `--update-golden` flag regenerates them.
 
-6. **`return_render: bool = False` on L1 mutation tools** — phase-4 §4 requires this on every paint/event tool. When `True`, the response carries the `Image` content block in addition to the existing structured dict.
+7. **`examples/04_render_loop/`** — paint → render → critique (map-design-critic agent) → fix → re-render. Score must improve measurably.
 
-7. **5-map fidelity corpus** under `tests/fixtures/renders/`. Each entry has: (a) a project state (synthetic, or a tiny vendored vanilla-pokeemerald slice), (b) a Porymap reference PNG produced with **scale 1×, show connections = off, no overlays, include border per case**. CI compares `np.array_equal(decoded(ours), decoded(reference))`. A `--update-golden` flag regenerates them.
-
-8. **`examples/04_render_loop/`** — paint → render → critique (map-design-critic agent) → fix → re-render. Score must improve measurably.
-
-9. **Tag `v1.0.0`** when phase-4 §2 exit criteria are all checked.
+8. **Tag `v1.0.0`** when phase-4 §2 exit criteria are all checked.
 
 Useful current state:
-- `parsers/attributes.py` already decodes `metatile_attributes.bin` and exposes the `LayerType` enum. `decode_metatile_bank` consumes that output unchanged.
-- `parsers/tileset.py` already enumerates tileset directories and produces `TilesetEntry` with paths to `tiles.png`, `palettes/`, `metatiles.bin`, `metatile_attributes.bin`. The render code chains: discover tilesets → load tile bank + palette bank + metatile bank per tileset pair → assemble layout.
-- `Project.iter_maps` / `Project.get_map_entry` / layout parser already give us `MapLayout` with `metatile_grid`, `collision_grid`, `elevation_grid`. The `render_map` tool composes existing parsers + the new renderer.
+- `parsers/attributes.py` decodes `metatile_attributes.bin` into a tuple of `MetatileAttributes` (`.layer_type: int`). `compose.decode_metatile_bank` consumes that directly.
+- `parsers/tileset.py` enumerates tileset directories and produces `TilesetEntry` with paths to `tiles.png`, `palettes/`, `metatiles.bin`, `metatile_attributes.bin`. The render pipeline chains: discover tilesets → `decode_tile_bank` + `decode_palette_bank` + `decode_metatile_bank` per tileset pair → `layout.assemble(...)` → encode (next slice).
+- `parsers/mapbin.py::MapBin` is the in-memory layout shape (`tiles[y][x]` tuple of `Tile` with `metatile_id`/`collision`/`elevation`). `layout.mapbin_to_metatile_grid(mb)` adapts it to the numpy grid; the original `MapBin` stays available for overlays (collision/elevation read directly off it).
+- `ProjectConfig.enable_triple_layer_metatiles` already exists; pass `layers=3 if enabled else 2` into `decode_metatile_bank`.
 - Mypy in CI runs in an isolated `uv tool` env that does not see numpy/PIL; the override in `pyproject.toml` keeps `mypy --strict` clean. Don't remove it without adding stub packages.
-- The synthetic-PNG / synthetic-JASC test helpers in `tests/unit/render/test_compose.py` (`_write_indexed_png`, `_make_jasc`, `_identity_palette`) are reusable for the metatile-bank tests — promote them to a shared `conftest.py` under `tests/unit/render/` if they get used in 3+ files.
+- Synthetic test helpers under `tests/unit/render/` are split between `test_compose.py` (`_solid_tile_bank`, `_two_palette_bank`, `_tile_word`, `_metatile_bytes`, `_attr`) and `test_layout.py` (`_colour_bank`, `_expected_pixel`). If a third file under `tests/unit/render/` reuses any of them, promote to a shared `conftest.py`.
 
 ## Outstanding chores (not blocking L3)
 

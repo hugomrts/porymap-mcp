@@ -65,6 +65,22 @@ class PaletteFormatError(FormatError):
     declared colour count, or malformed RGB triple)."""
 
 
+class MetatilesBinFormatError(FormatError):
+    """A tileset's ``metatiles.bin`` did not match the expected layout
+    (size not a multiple of 16/24, or attribute count mismatch)."""
+
+
+class LayoutAssemblyError(PorymapMCPError):
+    """L3 layout-assembly precondition failed: shape mismatch between the
+    metatile bank and the metatile grid, grid contains an out-of-range
+    metatile ID, or a requested region is invalid for the grid."""
+
+
+class PngEncodeError(PorymapMCPError):
+    """L3 PNG encode precondition failed: input is not a ``uint8 (H, W, 4)``
+    RGBA array, has a zero dimension, or ``area_metatiles`` is negative."""
+
+
 class MapNotFoundError(ProjectError):
     """Referenced map name does not exist in the project."""
 

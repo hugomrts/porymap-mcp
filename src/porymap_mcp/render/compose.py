@@ -24,13 +24,27 @@ from typing import Final
 import numpy as np
 from PIL import Image, UnidentifiedImageError
 
-from porymap_mcp.errors import PaletteFormatError, TilesPngFormatError
+from porymap_mcp.errors import (
+    MetatilesBinFormatError,
+    PaletteFormatError,
+    TilesPngFormatError,
+)
+from porymap_mcp.parsers.attributes import MetatileAttributes
 
 #: Side length of one tile, in pixels (GBA hardware constant).
 TILE_SIZE: Final = 8
 
 #: Number of colours per palette (GBA 4-bpp hardware constant).
 PALETTE_SIZE: Final = 16
+
+#: Tiles per 16x16 metatile in dual-layer mode (RSE / vanilla pokeemerald).
+DUAL_LAYER_TILES_PER_METATILE: Final = 8
+
+#: Tiles per 16x16 metatile in triple-layer mode (pokeemerald-expansion).
+TRIPLE_LAYER_TILES_PER_METATILE: Final = 12
+
+#: Top-left (y, x) of each of the 4 sub-tiles in the row-major 2x2 grid.
+_QUAD_POSITIONS: Final = ((0, 0), (0, 8), (8, 0), (8, 8))
 
 
 def decode_tile_bank(tiles_png_path: Path) -> np.ndarray:
@@ -180,3 +194,188 @@ def _parse_jasc(text: str, source: Path) -> np.ndarray:
         alpha = 0 if i == 0 else 255
         out[i] = (r & 0xF8, g & 0xF8, b & 0xF8, alpha)
     return out
+
+
+def decode_metatile_bank(
+    metatiles_bytes: bytes,
+    attributes: Sequence[MetatileAttributes],
+    tile_bank: np.ndarray,
+    palette_bank: np.ndarray,
+    *,
+    layers: int,
+    unused_tile_normal: int,
+    unused_tile_covered: int,
+    unused_tile_split: int,
+    transparency_color: int | None,
+) -> np.ndarray:
+    """Compose every metatile into a ``[num_metatiles, 16, 16, 4]`` RGBA bank.
+
+    Implements ADR-0010's "always 3 stacked layers" composition rule. Each
+    metatile is rendered onto a 16x16 RGBA canvas pre-filled with the
+    transparency colour, and three layers of four 8x8 tiles each are
+    alpha-composited bottom-to-top.
+
+    ``layers=3`` (triple-layer mode, ``enable_triple_layer_metatiles=1``):
+        All three layers come from disk — file tiles 0-3 (bottom), 4-7
+        (middle), 8-11 (top).
+
+    ``layers=2`` (dual-layer mode, vanilla RSE / pokeemerald):
+        Two layers come from disk; the third is filled by the project-config
+        ``unused_tile_{normal,covered,split}`` tile ID (palette 0, no flips),
+        selected by the metatile's ``LayerType`` attribute (ADR-0010
+        composition table):
+
+        =========================  ========  =========  ========
+        ``LayerType``              bottom    middle     top
+        =========================  ========  =========  ========
+        ``Normal`` (0)             unused    file 0-3   file 4-7
+        ``Covered`` (1)            file 0-3  file 4-7   unused
+        ``Split`` (2)              file 0-3  unused     file 4-7
+        =========================  ========  =========  ========
+
+        Any other ``layer_type`` value falls back to ``Normal`` — Porymap's
+        switch statement does the same (``src/ui/imageproviders.cpp``).
+
+    Each on-disk 2-byte tile entry unpacks as: ``tile_id`` = bits 0-9,
+    ``xflip`` = bit 10, ``yflip`` = bit 11, ``palette_num`` = bits 12-15.
+
+    Args:
+        metatiles_bytes: Raw bytes of ``metatiles.bin``.
+        attributes: Decoded :class:`MetatileAttributes` for every metatile,
+            in the same order. Length must match ``len(metatiles_bytes) /
+            bytes_per_metatile``.
+        tile_bank: ``uint8[num_tiles, 8, 8]`` from :func:`decode_tile_bank`
+            (concatenation of primary + secondary banks is the caller's
+            responsibility — typically primary tiles 0..511, secondary
+            512..1023 for vanilla).
+        palette_bank: ``uint8[num_palettes, 16, 4]`` from
+            :func:`decode_palette_bank`, with GBA quantization and
+            palette-0 alpha-0 already applied.
+        layers: 2 (dual) or 3 (triple).
+        unused_tile_normal: Tile ID for the bottom fill on ``Normal``
+            metatiles (``ProjectConfig.unused_tile_normal``).
+        unused_tile_covered: Tile ID for the top fill on ``Covered`` metatiles.
+        unused_tile_split: Tile ID for the middle fill on ``Split`` metatiles.
+        transparency_color: 24-bit RGB packed as ``0x00RRGGBB``, or ``None``.
+            Each component is masked ``& 0xF8`` (GBA quantization). When
+            ``None``, the bottom-layer fill falls back to colour 0 of
+            palette 0 (which is the index Porymap takes when
+            ``transparency_color`` is unset or invalid).
+
+    Returns:
+        A ``uint8`` array of shape ``(num_metatiles, 16, 16, 4)`` — RGBA
+        pixels per metatile.
+
+    Raises:
+        MetatilesBinFormatError: ``layers`` not in {2, 3}, ``metatiles.bin``
+            size not a positive multiple of ``8 * layers`` bytes, or
+            attribute count does not match the metatile count.
+        PaletteFormatError: ``palette_bank`` is empty.
+    """
+    if layers not in (2, 3):
+        raise MetatilesBinFormatError(f"layers must be 2 (dual) or 3 (triple), got {layers}")
+    if palette_bank.shape[0] == 0:
+        raise PaletteFormatError("palette_bank is empty; need at least palette 0")
+
+    tiles_per_metatile = 4 * layers
+    bytes_per_metatile = 2 * tiles_per_metatile
+    n_bytes = len(metatiles_bytes)
+    if n_bytes == 0 or n_bytes % bytes_per_metatile != 0:
+        raise MetatilesBinFormatError(
+            f"metatiles.bin: size {n_bytes} bytes is not a positive multiple "
+            f"of {bytes_per_metatile} ({layers}-layer mode)"
+        )
+    num_metatiles = n_bytes // bytes_per_metatile
+    if len(attributes) != num_metatiles:
+        raise MetatilesBinFormatError(
+            f"metatiles.bin declares {num_metatiles} metatiles but "
+            f"{len(attributes)} attributes were provided"
+        )
+
+    # Background fill: transparency_color (GBA-quantized) or palette[0][0] RGB.
+    if transparency_color is not None:
+        r = (transparency_color >> 16) & 0xFF
+        g = (transparency_color >> 8) & 0xFF
+        b = transparency_color & 0xFF
+        bg = np.array([r & 0xF8, g & 0xF8, b & 0xF8, 0xFF], dtype=np.uint8)
+    else:
+        p00 = palette_bank[0, 0]
+        bg = np.array([p00[0], p00[1], p00[2], 0xFF], dtype=np.uint8)
+
+    out = np.empty((num_metatiles, 16, 16, 4), dtype=np.uint8)
+    out[...] = bg
+
+    # Vectorized tile-entry unpacking. Little-endian uint16; bit-fields per
+    # ADR-0010 §"Metatile composition".
+    entries = np.frombuffer(metatiles_bytes, dtype="<u2").reshape(num_metatiles, tiles_per_metatile)
+    tile_ids = (entries & 0x03FF).astype(np.uint16)
+    xflips = ((entries >> 10) & 0x1).astype(bool)
+    yflips = ((entries >> 11) & 0x1).astype(bool)
+    palette_nums = ((entries >> 12) & 0x0F).astype(np.uint8)
+
+    num_tiles = int(tile_bank.shape[0])
+    num_palettes = int(palette_bank.shape[0])
+
+    # The "unused" entry: tile_id only; palette 0, no flips (Porymap's bare
+    # ``Tile(id)`` constructor defaults — see ``src/ui/imageproviders.cpp``).
+    fill_normal = (unused_tile_normal, False, False, 0)
+    fill_covered = (unused_tile_covered, False, False, 0)
+    fill_split = (unused_tile_split, False, False, 0)
+
+    for m in range(num_metatiles):
+        layer_a = _entries_at(tile_ids, xflips, yflips, palette_nums, m, 0, 4)
+        layer_b = _entries_at(tile_ids, xflips, yflips, palette_nums, m, 4, 8)
+        if layers == 3:
+            layer_c = _entries_at(tile_ids, xflips, yflips, palette_nums, m, 8, 12)
+            stack = (layer_a, layer_b, layer_c)
+        else:
+            lt = attributes[m].layer_type
+            if lt == 1:  # Covered
+                stack = (layer_a, layer_b, (fill_covered,) * 4)
+            elif lt == 2:  # Split
+                stack = (layer_a, (fill_split,) * 4, layer_b)
+            else:  # Normal (0) — also the fallback for unknown values.
+                stack = ((fill_normal,) * 4, layer_a, layer_b)
+
+        canvas = out[m]
+        for layer in stack:
+            for (ty, tx), (tid, xf, yf, pal) in zip(_QUAD_POSITIONS, layer, strict=True):
+                if tid >= num_tiles or pal >= num_palettes:
+                    continue
+                tile = tile_bank[int(tid)]
+                if xf:
+                    tile = tile[:, ::-1]
+                if yf:
+                    tile = tile[::-1, :]
+                colours = palette_bank[int(pal)][tile]
+                mask = colours[..., 3] > 0
+                region = canvas[ty : ty + TILE_SIZE, tx : tx + TILE_SIZE]
+                region[mask] = colours[mask]
+
+    return out
+
+
+def _entries_at(
+    tile_ids: np.ndarray,
+    xflips: np.ndarray,
+    yflips: np.ndarray,
+    palette_nums: np.ndarray,
+    m: int,
+    start: int,
+    stop: int,
+) -> tuple[tuple[int, bool, bool, int], ...]:
+    """Pluck a slice of tile entries for metatile ``m`` into Python tuples.
+
+    Returning plain ints/bools keeps the composition loop's inner branch
+    simple — numpy scalar arithmetic in a hot path is measurably slower
+    than ``int(...)``-cast scalars.
+    """
+    return tuple(
+        (
+            int(tile_ids[m, i]),
+            bool(xflips[m, i]),
+            bool(yflips[m, i]),
+            int(palette_nums[m, i]),
+        )
+        for i in range(start, stop)
+    )

@@ -29,6 +29,7 @@ from porymap_mcp.parsers import mapjson
 from porymap_mcp.parsers.mapjson import MapJson
 from porymap_mcp.project import Project
 from porymap_mcp.tools._common import load_project as _load_project
+from porymap_mcp.tools._common import maybe_attach_render as _maybe_attach_render
 from porymap_mcp.tools._common import posix_str as _posix_str
 from porymap_mcp.tools._common import summarize_files as _summarize_files
 
@@ -87,7 +88,8 @@ def add_warp(
     dest_map: str,
     dest_warp_id: int,
     elevation: int = 0,
-) -> dict[str, Any]:
+    return_render: bool = False,
+) -> Any:
     """See ADR-0007 §1."""
     project, bare, doc, width, height = _resolve_for_mutation(project_path, map_name)
     _check_coords(x, y, width, height)
@@ -101,7 +103,7 @@ def add_warp(
     idx = _append_event(doc, "warp_events", event)
     target = _save_map_json(project, bare, doc)
     event_id = f"warp_events:{idx}"
-    return {
+    response: dict[str, Any] = {
         "summary": (f"Added {event_id} at ({x}, {y}) on {map_name} -> {dest_map}:{dest_warp_id}."),
         "project_path": _posix_str(project.root),
         "map_name": map_name,
@@ -112,6 +114,9 @@ def add_warp(
         "dest_warp_id": str(dest_warp_id),
         "files_modified": _summarize_files([target], project.root),
     }
+    return _maybe_attach_render(
+        response, project_path=project_path, map_name=map_name, return_render=return_render
+    )
 
 
 # --- 2. add_object_event --------------------------------------------------
@@ -131,7 +136,8 @@ def add_object_event(
     movement_range_y: int = 0,
     trainer_type: str = "TRAINER_TYPE_NONE",
     trainer_sight_or_berry_tree_id: str = "0",
-) -> dict[str, Any]:
+    return_render: bool = False,
+) -> Any:
     """See ADR-0007 §2."""
     project, bare, doc, width, height = _resolve_for_mutation(project_path, map_name)
     _check_coords(x, y, width, height)
@@ -151,7 +157,7 @@ def add_object_event(
     idx = _append_event(doc, "object_events", event)
     target = _save_map_json(project, bare, doc)
     event_id = f"object_events:{idx}"
-    return {
+    response: dict[str, Any] = {
         "summary": (f"Added {event_id} ({graphics_id}) at ({x}, {y}) on {map_name}."),
         "project_path": _posix_str(project.root),
         "map_name": map_name,
@@ -161,6 +167,9 @@ def add_object_event(
         "graphics_id": graphics_id,
         "files_modified": _summarize_files([target], project.root),
     }
+    return _maybe_attach_render(
+        response, project_path=project_path, map_name=map_name, return_render=return_render
+    )
 
 
 # --- 3. add_sign ----------------------------------------------------------
@@ -174,7 +183,8 @@ def add_sign(
     text: str,
     player_facing_dir: str = "BG_EVENT_PLAYER_FACING_ANY",
     elevation: int = 0,
-) -> dict[str, Any]:
+    return_render: bool = False,
+) -> Any:
     """See ADR-0007 §3."""
     project, bare, doc, width, height = _resolve_for_mutation(project_path, map_name)
     _check_coords(x, y, width, height)
@@ -222,7 +232,7 @@ def add_sign(
     idx = _append_event(doc, "bg_events", event)
     target = _save_map_json(project, bare, doc)
     event_id = f"bg_events:{idx}"
-    return {
+    response: dict[str, Any] = {
         "summary": (
             f"Added {event_id} (sign) at ({x}, {y}) on {map_name} with script {script_symbol}."
         ),
@@ -235,6 +245,9 @@ def add_sign(
         "script_file": script_path.relative_to(project.root).as_posix(),
         "files_modified": _summarize_files([target, script_path], project.root),
     }
+    return _maybe_attach_render(
+        response, project_path=project_path, map_name=map_name, return_render=return_render
+    )
 
 
 def _project_uses_poryscript(project: Project) -> bool:
@@ -290,7 +303,8 @@ def add_trigger(
     value: int,
     script: str,
     elevation: int = 0,
-) -> dict[str, Any]:
+    return_render: bool = False,
+) -> Any:
     """See ADR-0007 §4."""
     project, bare, doc, width, height = _resolve_for_mutation(project_path, map_name)
     _check_coords(x, y, width, height)
@@ -306,7 +320,7 @@ def add_trigger(
     idx = _append_event(doc, "coord_events", event)
     target = _save_map_json(project, bare, doc)
     event_id = f"coord_events:{idx}"
-    return {
+    response: dict[str, Any] = {
         "summary": (
             f"Added {event_id} (trigger) at ({x}, {y}) on {map_name}: {var}={value} -> {script}."
         ),
@@ -320,6 +334,9 @@ def add_trigger(
         "script": script,
         "files_modified": _summarize_files([target], project.root),
     }
+    return _maybe_attach_render(
+        response, project_path=project_path, map_name=map_name, return_render=return_render
+    )
 
 
 # --- 5. remove_event ------------------------------------------------------
@@ -329,7 +346,8 @@ def remove_event(
     project_path: str,
     map_name: str,
     event_id: str,
-) -> dict[str, Any]:
+    return_render: bool = False,
+) -> Any:
     """See ADR-0007 §5."""
     project, bare, doc, _width, _height = _resolve_for_mutation(project_path, map_name)
     class_name, index = _parse_event_id(event_id)
@@ -341,22 +359,31 @@ def remove_event(
         "event_id": event_id,
     }
     if index >= len(existing):
-        return {
+        noop_response: dict[str, Any] = {
             **response_base,
             "summary": (f"{event_id} not present on {map_name}; nothing to remove."),
             "removed_event": None,
             "files_modified": [],
         }
+        return _maybe_attach_render(
+            noop_response,
+            project_path=project_path,
+            map_name=map_name,
+            return_render=return_render,
+        )
     removed = dict(existing[index])
     new_arr = (*existing[:index], *existing[index + 1 :])
     setattr(doc, class_name, new_arr)
     target = _save_map_json(project, bare, doc)
-    return {
+    response: dict[str, Any] = {
         **response_base,
         "summary": f"Removed {event_id} from {map_name}.",
         "removed_event": removed,
         "files_modified": _summarize_files([target], project.root),
     }
+    return _maybe_attach_render(
+        response, project_path=project_path, map_name=map_name, return_render=return_render
+    )
 
 
 def _parse_event_id(event_id: str) -> tuple[str, int]:
@@ -398,7 +425,8 @@ def _tool_add_warp(
     dest_map: str,
     dest_warp_id: int,
     elevation: int = 0,
-) -> dict[str, Any]:
+    return_render: bool = False,
+) -> Any:
     """Append a warp event to a map.
 
     A warp teleports the player to dest_map's dest_warp_id (the
@@ -411,8 +439,19 @@ def _tool_add_warp(
       dest_map: MAP_* constant of the DESTINATION map.
       dest_warp_id: 0-based index into dest_map's warp_events array.
       elevation: 0..15. Default 0.
+      return_render: if True, attach a PNG render of the post-mutation
+        map to the response.
     """
-    return add_warp(project_path, map_name, x, y, dest_map, dest_warp_id, elevation)
+    return add_warp(
+        project_path,
+        map_name,
+        x,
+        y,
+        dest_map,
+        dest_warp_id,
+        elevation,
+        return_render=return_render,
+    )
 
 
 def _tool_add_object_event(
@@ -429,7 +468,8 @@ def _tool_add_object_event(
     movement_range_y: int = 0,
     trainer_type: str = "TRAINER_TYPE_NONE",
     trainer_sight_or_berry_tree_id: str = "0",
-) -> dict[str, Any]:
+    return_render: bool = False,
+) -> Any:
     """Append an object event (NPC, item ball, static) to a map.
 
     Does NOT generate a script stub — too varied for boilerplate. The
@@ -461,6 +501,7 @@ def _tool_add_object_event(
         movement_range_y,
         trainer_type,
         trainer_sight_or_berry_tree_id,
+        return_render=return_render,
     )
 
 
@@ -472,7 +513,8 @@ def _tool_add_sign(
     text: str,
     player_facing_dir: str = "BG_EVENT_PLAYER_FACING_ANY",
     elevation: int = 0,
-) -> dict[str, Any]:
+    return_render: bool = False,
+) -> Any:
     """Append a sign with inline text. Generates a script stub.
 
     Writes a poryscript stub by default (use_poryscript=1) or a legacy
@@ -487,8 +529,19 @@ def _tool_add_sign(
       text: the message displayed when the sign is read.
       player_facing_dir: BG_EVENT_PLAYER_FACING_* constant.
       elevation: 0..15. Default 0.
+      return_render: if True, attach a PNG render of the post-mutation
+        map to the response.
     """
-    return add_sign(project_path, map_name, x, y, text, player_facing_dir, elevation)
+    return add_sign(
+        project_path,
+        map_name,
+        x,
+        y,
+        text,
+        player_facing_dir,
+        elevation,
+        return_render=return_render,
+    )
 
 
 def _tool_add_trigger(
@@ -500,7 +553,8 @@ def _tool_add_trigger(
     value: int,
     script: str,
     elevation: int = 0,
-) -> dict[str, Any]:
+    return_render: bool = False,
+) -> Any:
     """Append a coord-based script trigger.
 
     Fires the script when the player steps on (x, y) AND var equals
@@ -515,15 +569,28 @@ def _tool_add_trigger(
       value: integer compared against var.
       script: script symbol to run.
       elevation: 0..15. Default 0.
+      return_render: if True, attach a PNG render of the post-mutation
+        map to the response.
     """
-    return add_trigger(project_path, map_name, x, y, var, value, script, elevation)
+    return add_trigger(
+        project_path,
+        map_name,
+        x,
+        y,
+        var,
+        value,
+        script,
+        elevation,
+        return_render=return_render,
+    )
 
 
 def _tool_remove_event(
     project_path: str,
     map_name: str,
     event_id: str,
-) -> dict[str, Any]:
+    return_render: bool = False,
+) -> Any:
     """Remove any event by its synthesized _event_id.
 
     Get the id from list_events. Format: "<class>:<index>" (e.g.
@@ -539,7 +606,7 @@ def _tool_remove_event(
       map_name: MAP_* constant.
       event_id: e.g. "warp_events:1".
     """
-    return remove_event(project_path, map_name, event_id)
+    return remove_event(project_path, map_name, event_id, return_render=return_render)
 
 
 __all__ = [

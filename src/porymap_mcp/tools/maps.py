@@ -42,6 +42,7 @@ from porymap_mcp.parsers.mapgroups import MapGroups
 from porymap_mcp.parsers.mapjson import MapJson
 from porymap_mcp.project import DEFAULT_BORDER_SIZE, Project
 from porymap_mcp.tools._common import load_project as _load_project
+from porymap_mcp.tools._common import maybe_attach_render as _maybe_attach_render
 from porymap_mcp.tools._common import posix_str as _posix_str
 from porymap_mcp.tools._common import summarize_files as _summarize_files
 
@@ -172,7 +173,8 @@ def paint_metatile(
     metatile_id: int,
     collision: int | None = None,
     elevation: int | None = None,
-) -> dict[str, Any]:
+    return_render: bool = False,
+) -> Any:
     """See ADR-0006 §1."""
     project = _load_project(project_path)
     _check_metatile_id(metatile_id)
@@ -208,7 +210,9 @@ def paint_metatile(
             f"elevation={new_tile.elevation}; no change."
         )
         response["files_modified"] = []
-        return response
+        return _maybe_attach_render(
+            response, project_path=project_path, map_name=map_name, return_render=return_render
+        )
 
     new_layout = _replace_tile(layout, x, y, new_tile)
     project.write_map_bin(layout_id, new_layout)
@@ -224,7 +228,9 @@ def paint_metatile(
     response["files_modified"] = _summarize_files(
         [project.resolve_path(layout_entry.blockdata_filepath)], project.root
     )
-    return response
+    return _maybe_attach_render(
+        response, project_path=project_path, map_name=map_name, return_render=return_render
+    )
 
 
 # --- 2. paint_rectangle ---------------------------------------------------
@@ -240,7 +246,8 @@ def paint_rectangle(
     metatile_id: int,
     collision: int | None = None,
     elevation: int | None = None,
-) -> dict[str, Any]:
+    return_render: bool = False,
+) -> Any:
     """See ADR-0006 §2."""
     project = _load_project(project_path)
     _check_metatile_id(metatile_id)
@@ -293,7 +300,9 @@ def paint_rectangle(
             f"already matches metatile 0x{metatile_id:03X}; no change."
         )
         response["files_modified"] = []
-        return response
+        return _maybe_attach_render(
+            response, project_path=project_path, map_name=map_name, return_render=return_render
+        )
 
     project.write_map_bin(layout_id, new_layout)
     response["summary"] = (
@@ -304,7 +313,9 @@ def paint_rectangle(
     response["files_modified"] = _summarize_files(
         [project.resolve_path(layout_entry.blockdata_filepath)], project.root
     )
-    return response
+    return _maybe_attach_render(
+        response, project_path=project_path, map_name=map_name, return_render=return_render
+    )
 
 
 # --- 3. flood_fill --------------------------------------------------------
@@ -318,7 +329,8 @@ def flood_fill(
     metatile_id: int,
     collision: int | None = None,
     elevation: int | None = None,
-) -> dict[str, Any]:
+    return_render: bool = False,
+) -> Any:
     """See ADR-0006 §3. Iterative 4-connected BFS."""
     project = _load_project(project_path)
     _check_metatile_id(metatile_id)
@@ -348,7 +360,9 @@ def flood_fill(
             f"0x{metatile_id:03X}; no change."
         )
         response["files_modified"] = []
-        return response
+        return _maybe_attach_render(
+            response, project_path=project_path, map_name=map_name, return_render=return_render
+        )
 
     # Mutable working copy as list-of-lists for in-place tile replacement.
     grid: list[list[Tile]] = [list(row) for row in layout.tiles]
@@ -383,7 +397,9 @@ def flood_fill(
     if tiles_changed == 0:
         response["summary"] = f"Flood-fill from ({x}, {y}) on {map_name} produced no changes."
         response["files_modified"] = []
-        return response
+        return _maybe_attach_render(
+            response, project_path=project_path, map_name=map_name, return_render=return_render
+        )
 
     new_layout = MapBin(
         width=layout.width,
@@ -398,7 +414,9 @@ def flood_fill(
     response["files_modified"] = _summarize_files(
         [project.resolve_path(layout_entry.blockdata_filepath)], project.root
     )
-    return response
+    return _maybe_attach_render(
+        response, project_path=project_path, map_name=map_name, return_render=return_render
+    )
 
 
 # --- 4. set_border --------------------------------------------------------
@@ -410,7 +428,8 @@ def set_border(
     metatile_ids: Sequence[Sequence[int]],
     collision_ids: Sequence[Sequence[int]] | None = None,
     elevation_ids: Sequence[Sequence[int]] | None = None,
-) -> dict[str, Any]:
+    return_render: bool = False,
+) -> Any:
     """See ADR-0006 §4."""
     project = _load_project(project_path)
     layout_id, layout_entry = _resolve_layout(project, map_name)
@@ -467,7 +486,9 @@ def set_border(
             f"{border_h} grid; no change."
         )
         response["files_modified"] = []
-        return response
+        return _maybe_attach_render(
+            response, project_path=project_path, map_name=map_name, return_render=return_render
+        )
 
     project.write_border_bin(layout_id, new_border)
     response["summary"] = (
@@ -476,7 +497,9 @@ def set_border(
     response["files_modified"] = _summarize_files(
         [project.resolve_path(layout_entry.border_filepath)], project.root
     )
-    return response
+    return _maybe_attach_render(
+        response, project_path=project_path, map_name=map_name, return_render=return_render
+    )
 
 
 def _validate_2d_shape(
@@ -524,7 +547,8 @@ def create_map(
     fill_metatile_id: int = 0,
     border_metatile_ids: Sequence[Sequence[int]] | None = None,
     header_overrides: dict[str, Any] | None = None,
-) -> dict[str, Any]:
+    return_render: bool = False,
+) -> Any:
     """See ADR-0006 §5."""
     project = _load_project(project_path)
     _validate_bare_name(name)
@@ -685,7 +709,7 @@ def create_map(
     files_modified.append(project.map_groups_json_path)
 
     group_msg = " (created)" if group_created else ""
-    return {
+    response: dict[str, Any] = {
         "summary": (
             f"Created {map_id} ({width}x{height}) in group {group}{group_msg} "
             f"using {primary_tileset} / {secondary_tileset}."
@@ -704,6 +728,9 @@ def create_map(
         },
         "files_modified": _summarize_files(files_modified, project.root),
     }
+    return _maybe_attach_render(
+        response, project_path=project_path, map_name=map_id, return_render=return_render
+    )
 
 
 def _atomic_bytes(path: Path, data: bytes) -> None:
@@ -723,7 +750,8 @@ def resize_map(
     new_height: int,
     anchor: str = "top-left",
     fill_metatile_id: int = 0,
-) -> dict[str, Any]:
+    return_render: bool = False,
+) -> Any:
     """See ADR-0006 §6."""
     project = _load_project(project_path)
     if anchor != "top-left":
@@ -747,7 +775,7 @@ def resize_map(
     }
 
     if new_width == layout_entry.width and new_height == layout_entry.height:
-        return {
+        noop_response: dict[str, Any] = {
             **response_base,
             "summary": (
                 f"Layout {layout_id} on {map_name} already {new_width}x{new_height}; no change."
@@ -756,6 +784,12 @@ def resize_map(
             "cells_removed": 0,
             "files_modified": [],
         }
+        return _maybe_attach_render(
+            noop_response,
+            project_path=project_path,
+            map_name=map_name,
+            return_render=return_render,
+        )
 
     # Shrinking: refuse if any event would fall outside the new bounds.
     orphans: list[str] = []
@@ -825,7 +859,7 @@ def resize_map(
 
     cells_added = max(0, new_width * new_height - layout_entry.width * layout_entry.height)
     cells_removed = max(0, layout_entry.width * layout_entry.height - new_width * new_height)
-    return {
+    resized_response: dict[str, Any] = {
         **response_base,
         "summary": (
             f"Resized {layout_id} from {layout_entry.width}x{layout_entry.height} "
@@ -842,6 +876,12 @@ def resize_map(
             project.root,
         ),
     }
+    return _maybe_attach_render(
+        resized_response,
+        project_path=project_path,
+        map_name=map_name,
+        return_render=return_render,
+    )
 
 
 # --- 7. paint_prefab ------------------------------------------------------
@@ -853,7 +893,8 @@ def paint_prefab(
     prefab_name: str,
     x: int,
     y: int,
-) -> dict[str, Any]:
+    return_render: bool = False,
+) -> Any:
     """See ADR-0008."""
     from porymap_mcp.prefabs import get as _get_prefab
 
@@ -924,7 +965,9 @@ def paint_prefab(
             f"Prefab {prefab_name!r} at ({x},{y}) on {map_name} already fully matches; no change."
         )
         response["files_modified"] = []
-        return response
+        return _maybe_attach_render(
+            response, project_path=project_path, map_name=map_name, return_render=return_render
+        )
 
     project.write_map_bin(layout_id, new_layout)
     response["summary"] = (
@@ -934,7 +977,9 @@ def paint_prefab(
     response["files_modified"] = _summarize_files(
         [project.resolve_path(layout_entry.blockdata_filepath)], project.root
     )
-    return response
+    return _maybe_attach_render(
+        response, project_path=project_path, map_name=map_name, return_render=return_render
+    )
 
 
 # --- FastMCP registration -------------------------------------------------
@@ -959,7 +1004,8 @@ def _tool_paint_metatile(
     metatile_id: int,
     collision: int | None = None,
     elevation: int | None = None,
-) -> dict[str, Any]:
+    return_render: bool = False,
+) -> Any:
     """Set a single tile on a map's layout.
 
     The atomic paint primitive. Idempotent: re-running with identical
@@ -973,8 +1019,19 @@ def _tool_paint_metatile(
       metatile_id: 0..1023. Use list_metatiles for valid ids.
       collision: 0..3, or None to preserve.
       elevation: 0..15, or None to preserve.
+      return_render: if True, the response also carries a PNG render of
+        the post-mutation map (default False to keep the response small).
     """
-    return paint_metatile(project_path, map_name, x, y, metatile_id, collision, elevation)
+    return paint_metatile(
+        project_path,
+        map_name,
+        x,
+        y,
+        metatile_id,
+        collision,
+        elevation,
+        return_render=return_render,
+    )
 
 
 def _tool_paint_rectangle(
@@ -987,7 +1044,8 @@ def _tool_paint_rectangle(
     metatile_id: int,
     collision: int | None = None,
     elevation: int | None = None,
-) -> dict[str, Any]:
+    return_render: bool = False,
+) -> Any:
     """Fill an axis-aligned inclusive rectangle with one metatile id.
 
     Both corners painted. Strict order: x1<=x2 and y1<=y2 (reversed
@@ -1001,9 +1059,20 @@ def _tool_paint_rectangle(
       metatile_id: 0..1023.
       collision: 0..3, or None to preserve each tile's value.
       elevation: 0..15, or None to preserve.
+      return_render: if True, attach a PNG render of the post-mutation
+        map to the response.
     """
     return paint_rectangle(
-        project_path, map_name, x1, y1, x2, y2, metatile_id, collision, elevation
+        project_path,
+        map_name,
+        x1,
+        y1,
+        x2,
+        y2,
+        metatile_id,
+        collision,
+        elevation,
+        return_render=return_render,
     )
 
 
@@ -1015,7 +1084,8 @@ def _tool_flood_fill(
     metatile_id: int,
     collision: int | None = None,
     elevation: int | None = None,
-) -> dict[str, Any]:
+    return_render: bool = False,
+) -> Any:
     """Replace a 4-connected region of identical metatiles with a new id.
 
     Matches against metatile_id only (collision/elevation not consulted
@@ -1028,8 +1098,19 @@ def _tool_flood_fill(
       metatile_id: replacement value.
       collision: 0..3, or None to preserve per-tile.
       elevation: 0..15, or None to preserve.
+      return_render: if True, attach a PNG render of the post-mutation
+        map to the response.
     """
-    return flood_fill(project_path, map_name, x, y, metatile_id, collision, elevation)
+    return flood_fill(
+        project_path,
+        map_name,
+        x,
+        y,
+        metatile_id,
+        collision,
+        elevation,
+        return_render=return_render,
+    )
 
 
 def _tool_set_border(
@@ -1038,7 +1119,8 @@ def _tool_set_border(
     metatile_ids: list[list[int]],
     collision_ids: list[list[int]] | None = None,
     elevation_ids: list[list[int]] | None = None,
-) -> dict[str, Any]:
+    return_render: bool = False,
+) -> Any:
     """Replace a map's repeating border tiles.
 
     metatile_ids is a 2-D list [row][col] of size border_height x
@@ -1051,8 +1133,17 @@ def _tool_set_border(
         declared border dimensions.
       collision_ids: optional 2-D grid of 0..3, or None to preserve.
       elevation_ids: optional 2-D grid of 0..15, or None to preserve.
+      return_render: if True, attach a PNG render of the post-mutation
+        map to the response.
     """
-    return set_border(project_path, map_name, metatile_ids, collision_ids, elevation_ids)
+    return set_border(
+        project_path,
+        map_name,
+        metatile_ids,
+        collision_ids,
+        elevation_ids,
+        return_render=return_render,
+    )
 
 
 def _tool_create_map(
@@ -1066,7 +1157,8 @@ def _tool_create_map(
     fill_metatile_id: int = 0,
     border_metatile_ids: list[list[int]] | None = None,
     header_overrides: dict[str, Any] | None = None,
-) -> dict[str, Any]:
+    return_render: bool = False,
+) -> Any:
     """Create a new map: writes 5 files and registers it everywhere.
 
     Naming is derived from `name` (bare PascalCase, e.g. "LittlerootTown"):
@@ -1100,6 +1192,7 @@ def _tool_create_map(
         fill_metatile_id=fill_metatile_id,
         border_metatile_ids=border_metatile_ids,
         header_overrides=header_overrides,
+        return_render=return_render,
     )
 
 
@@ -1110,7 +1203,8 @@ def _tool_resize_map(
     new_height: int,
     anchor: str = "top-left",
     fill_metatile_id: int = 0,
-) -> dict[str, Any]:
+    return_render: bool = False,
+) -> Any:
     """Resize a map's layout, preserving overlapping content.
 
     Existing content anchored at (0, 0); new cells filled with
@@ -1133,6 +1227,7 @@ def _tool_resize_map(
         new_height,
         anchor=anchor,
         fill_metatile_id=fill_metatile_id,
+        return_render=return_render,
     )
 
 
@@ -1146,7 +1241,8 @@ def _tool_paint_prefab(
     prefab_name: str,
     x: int,
     y: int,
-) -> dict[str, Any]:
+    return_render: bool = False,
+) -> Any:
     """Stamp a named prefab at (x, y) (top-left anchor).
 
     Lists available prefabs via list_prefabs. Tileset compatibility is
@@ -1160,7 +1256,7 @@ def _tool_paint_prefab(
       x, y: top-left anchor (must satisfy x+width<=map.width and
         y+height<=map.height).
     """
-    return paint_prefab(project_path, map_name, prefab_name, x, y)
+    return paint_prefab(project_path, map_name, prefab_name, x, y, return_render=return_render)
 
 
 __all__ = [

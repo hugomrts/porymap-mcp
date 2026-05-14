@@ -25,7 +25,7 @@ This is the **reason the project exists in its final form**. Without L3, Claude 
 - [ ] `render_map(project_path, map_name)` returns a PNG that **pixel-matches** (decoded RGBA arrays equal, see ADR-0010 §Fidelity) Porymap's export with default flags + "show connections = off"
 - [ ] `render_map_region(...)` works for partial renders (big maps)
 - [ ] Optional overlays implemented: `collision`, `elevation`, `events`, `grid`
-- [ ] All L1 mutation tools gain `return_render: bool = False` parameter
+- [x] All L1 mutation tools gain `return_render: bool = False` parameter
 - [ ] Render performance hits the targets in `.claude/agents/map-renderer.md` §"Performance targets"
 - [ ] Golden pixel tests in CI (`tests/fixtures/renders/` stores both our PNG and the Porymap reference PNG; CI decodes both to RGBA and asserts `np.array_equal`)
 - [ ] **End-to-end self-critique loop demonstrated** in `examples/04_render_loop/`:
@@ -157,6 +157,102 @@ Goldens live under `tests/fixtures/renders/`. CI loads both PNGs, converts each 
 ---
 
 ## 9. Session log
+
+### 2026-05-14 — `return_render` on every L1 mutation tool
+
+Implementation slice 9. Closes exit-criterion phase-4 §2 ("All L1
+mutation tools gain `return_render: bool = False` parameter"). Every
+paint/event tool can now return an inline render of the post-mutation
+map in a single call, eliminating the
+mutation→`render_map` round-trip the agent would otherwise need.
+
+**Helper.** New `maybe_attach_render(response, *, project_path,
+map_name, return_render)` in `tools/_common.py`:
+
+- ``return_render=False`` (the default): returns the mutation's
+  ``response`` dict unchanged. Preserves the historical L1 contract
+  exactly — every existing test for every mutation tool still passes
+  without modification.
+- ``return_render=True``: late-imports
+  ``fastmcp.tools.base.ToolResult`` and ``tools.rendering.render_map``,
+  calls render_map (default options — no overlays, no border, scale=1),
+  and wraps the result. ``content[0]`` is the rendered PNG image
+  block; ``structured_content`` is the mutation's response merged with
+  the render metadata under a nested ``"render"`` key. The combined
+  ``summary`` string concatenates the mutation summary with the render
+  summary (``"Painted metatile 0x001 at (0, 0) on MAP_TEST_TOWN. Rendered MAP_TEST_TOWN..."``).
+
+The late import is important: ``tools/_common.py`` is imported by the
+L1 discovery tools, which must keep working without the ``render``
+extra installed. Calling ``maybe_attach_render(..., return_render=False)``
+never touches numpy/Pillow, so an agent that doesn't ask for the
+render path doesn't pay for it.
+
+**Tools touched** (12 total):
+
+- ``tools/maps.py`` — 7 mutations: ``paint_metatile``, ``paint_rectangle``,
+  ``flood_fill``, ``set_border``, ``create_map``, ``resize_map``,
+  ``paint_prefab``.
+- ``tools/events.py`` — 5 mutations: ``add_warp``, ``add_object_event``,
+  ``add_sign``, ``add_trigger``, ``remove_event``.
+
+Each tool gains a trailing ``return_render: bool = False`` parameter on
+both the body function and the ``_tool_*`` FastMCP wrapper, plus a one-
+line docstring addition. Every body function's return type is now
+``Any`` (was ``dict[str, Any]``); the dict-only contract still holds in
+the default code path but ``ToolResult`` is a possible return when
+``return_render=True``. Mypy ``--strict`` clean.
+
+**No-op branches also render.** ``paint_metatile`` on an unchanged tile,
+``paint_rectangle`` over already-matching tiles, ``flood_fill`` with a
+matching seed, ``remove_event`` on a non-existent id — all of these
+historically returned ``files_modified=[]``; with ``return_render=True``
+they still produce a PNG of the current state. The agent gets to see
+the map regardless of whether anything was written, which matches the
+phase-4 self-critique loop's expectation that every iteration ends
+with a visual.
+
+**Skipped.** ``register_map`` and ``unregister_map`` (in ``projects.py``)
+do not write pixel data; they only edit `map_groups.json`. They keep
+their existing dict return shape. An agent that wants a render after
+``register_map`` can call ``render_map`` explicitly.
+
+**+6 tests** under ``TestMutationReturnRender`` in
+``tests/unit/tools/test_rendering.py``:
+
+- ``paint_metatile`` default → ``dict`` (backward-compat invariant),
+  no ``"render"`` key.
+- ``paint_metatile(return_render=True)`` → ``ToolResult`` with verified
+  pixel content (cell repainted to metatile 1 reads back as the blue
+  colour-C the fixture defines), mutation fields preserved at the top
+  level (``map_name``, ``x``, ``y``, ``metatile_id``), render metadata
+  nested under ``"render"``, combined summary mentions both phases.
+- ``paint_rectangle(return_render=True)`` → smoke test on the second
+  paint tool.
+- No-op ``paint_metatile`` (already at target) still renders.
+- ``add_warp(return_render=True)`` → render attached, event_id
+  preserved at top level.
+- No-op ``remove_event`` (missing id) still renders.
+
+Suite: 454 → **460 passing**. ``ruff check .`` + ``ruff format --check
+.`` + ``mypy --strict src/porymap_mcp`` (29 source files) + ``pytest
+--no-cov`` all clean.
+
+Notes for the next slice (fidelity corpus):
+
+- The render path is now reachable from every mutation tool, which
+  means an integration test could synthesise a full project, mutate
+  it, and assert pixel equality against a vendored Porymap-exported
+  golden PNG in one call. That's the shape of the 5-map fidelity
+  corpus next: each fixture is `(project_state, golden.png)`, the
+  test calls `render_map(..., include_border=True)`, decodes both,
+  asserts `np.array_equal`.
+- The fixture corpus needs real Porymap export bytes. Two options: (a)
+  commit small golden PNGs to the repo (the practical choice — under
+  300 KB total for 5 small maps), or (b) generate them programmatically
+  using a vendored Porymap binary in CI (heavier, but pure-source).
+  The corpus is the cheapest gate to fidelity confidence; commit golden
+  PNGs.
 
 ### 2026-05-14 — `render/overlays.py` shipped (collision / elevation / grid / events)
 

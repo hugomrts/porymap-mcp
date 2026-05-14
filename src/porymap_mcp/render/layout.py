@@ -208,10 +208,15 @@ def tile_border_around(
         return map_rgba.copy()
 
     bh, bw = int(border_rgba.shape[0]), int(border_rgba.shape[1])
-    # Tile the border across the entire output via modulo indexing — one
-    # numpy fancy-index pass, no per-pixel Python loop.
-    ys = np.arange(total_h) % bh
-    xs = np.arange(total_w) % bw
+    # Tile the border across the entire output via modulo indexing.
+    # Porymap's tiling phase is anchored on the map's top-left corner, NOT
+    # on the output's top-left corner: border[0][0] lands at output pixel
+    # ``(fw_px, fh_px)`` (the start of the map), and tiles outside that
+    # cycle backwards through the border's metatiles. This matters for
+    # asymmetric borders — e.g. Littleroot's 2x2 ``border.bin`` with four
+    # different metatiles produces a different frame depending on phase.
+    ys = (np.arange(total_h) - fh_px) % bh
+    xs = (np.arange(total_w) - fw_px) % bw
     out: np.ndarray = border_rgba[ys[:, None], xs[None, :], :].copy()
     # Paste the map into the centre.
     out[fh_px : fh_px + map_h, fw_px : fw_px + map_w] = map_rgba

@@ -192,7 +192,7 @@ def _parse_jasc(text: str, source: Path) -> np.ndarray:
                 f"{source} line {4 + i}: RGB component out of [0, 255]: {line!r}"
             )
         alpha = 0 if i == 0 else 255
-        out[i] = (r & 0xF8, g & 0xF8, b & 0xF8, alpha)
+        out[i] = (r, g, b, alpha)
     return out
 
 
@@ -292,12 +292,12 @@ def decode_metatile_bank(
             f"{len(attributes)} attributes were provided"
         )
 
-    # Background fill: transparency_color (GBA-quantized) or palette[0][0] RGB.
+    # Background fill: transparency_color or palette[0][0] RGB.
     if transparency_color is not None:
         r = (transparency_color >> 16) & 0xFF
         g = (transparency_color >> 8) & 0xFF
         b = transparency_color & 0xFF
-        bg = np.array([r & 0xF8, g & 0xF8, b & 0xF8, 0xFF], dtype=np.uint8)
+        bg = np.array([r, g, b, 0xFF], dtype=np.uint8)
     else:
         p00 = palette_bank[0, 0]
         bg = np.array([p00[0], p00[1], p00[2], 0xFF], dtype=np.uint8)

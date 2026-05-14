@@ -31,6 +31,7 @@ from porymap_mcp.render.layout import (
     assemble_region,
     clip_region,
     mapbin_to_metatile_grid,
+    tile_border_around,
 )
 
 __all__ = [
@@ -50,4 +51,5 @@ __all__ = [
     "encode_png",
     "mapbin_to_metatile_grid",
     "package_render_result",
+    "tile_border_around",
 ]

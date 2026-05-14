@@ -19,6 +19,7 @@ from porymap_mcp.render.layout import (
     assemble_region,
     clip_region,
     mapbin_to_metatile_grid,
+    tile_border_around,
 )
 
 
@@ -281,3 +282,111 @@ class TestMapbinToMetatileGrid:
         assert tuple(out[0, 16]) == _expected_pixel(1)
         assert tuple(out[16, 0]) == _expected_pixel(2)
         assert tuple(out[16, 16]) == _expected_pixel(0)
+
+
+# --- tile_border_around --------------------------------------------------
+
+
+def _solid_rgba(h: int, w: int, rgba: tuple[int, int, int, int]) -> np.ndarray:
+    out = np.zeros((h, w, 4), dtype=np.uint8)
+    out[:] = rgba
+    return out
+
+
+class TestTileBorderAround:
+    def test_solid_border_wraps_solid_map(self) -> None:
+        # Map: 2x2 metatiles (32x32 px) filled red.
+        # Border: 2x2 metatiles (32x32 px) filled blue.
+        # Frame: 3 metatiles per side.
+        map_rgba = _solid_rgba(32, 32, (255, 0, 0, 255))
+        border_rgba = _solid_rgba(32, 32, (0, 0, 255, 255))
+        out = tile_border_around(
+            map_rgba,
+            border_rgba,
+            frame_width_metatiles=3,
+            frame_height_metatiles=3,
+        )
+        # 2 + 2*3 = 8 metatiles per side => 128 px.
+        assert out.shape == (128, 128, 4)
+        # Top-left corner is border (blue).
+        assert tuple(out[0, 0]) == (0, 0, 255, 255)
+        # Centre is the map (red).
+        assert tuple(out[64, 64]) == (255, 0, 0, 255)
+        # Right edge is border again.
+        assert tuple(out[64, 127]) == (0, 0, 255, 255)
+        # Map area unchanged.
+        assert np.all(out[48:80, 48:80] == map_rgba)
+
+    def test_border_tiles_by_modulo(self) -> None:
+        # Border with a recognisable checker pattern: top-left and bottom-right
+        # of the border are distinct colours; the tiling should repeat them.
+        border_rgba = _solid_rgba(32, 32, (10, 20, 30, 255))
+        # Override the 16x16 top-left quad with a different colour so we can
+        # spot the repeat.
+        border_rgba[0:16, 0:16] = (100, 200, 50, 255)
+        map_rgba = _solid_rgba(16, 16, (0, 0, 0, 255))
+        out = tile_border_around(
+            map_rgba,
+            border_rgba,
+            frame_width_metatiles=2,
+            frame_height_metatiles=2,
+        )
+        # Frame is 2 metatiles = 32 px per side. The border (32x32) tiles
+        # twice across each frame side. The top-left 16x16 of the output
+        # equals the border's top-left 16x16 (the recognisable green block).
+        assert tuple(out[0, 0]) == (100, 200, 50, 255)
+        # 32 px to the right, the border has tiled once → position (0, 32)
+        # in output equals border[0, 0] → green again.
+        assert tuple(out[0, 32]) == (100, 200, 50, 255)
+        # Position (0, 16) in output is border[0, 16] → grey (10, 20, 30).
+        assert tuple(out[0, 16]) == (10, 20, 30, 255)
+
+    def test_zero_frame_returns_copy(self) -> None:
+        map_rgba = _solid_rgba(16, 16, (5, 5, 5, 255))
+        border_rgba = _solid_rgba(32, 32, (9, 9, 9, 255))
+        out = tile_border_around(
+            map_rgba,
+            border_rgba,
+            frame_width_metatiles=0,
+            frame_height_metatiles=0,
+        )
+        assert out.shape == map_rgba.shape
+        assert np.array_equal(out, map_rgba)
+        # Distinct buffer — mutating the output must not change the input.
+        out[0, 0] = (1, 2, 3, 4)
+        assert tuple(map_rgba[0, 0]) == (5, 5, 5, 255)
+
+    def test_asymmetric_frame(self) -> None:
+        map_rgba = _solid_rgba(16, 16, (255, 255, 255, 255))
+        border_rgba = _solid_rgba(16, 16, (0, 0, 0, 255))
+        out = tile_border_around(
+            map_rgba,
+            border_rgba,
+            frame_width_metatiles=4,
+            frame_height_metatiles=1,
+        )
+        # Height: 1 + 1 + 1 = 3 metatiles = 48 px. Width: 4 + 1 + 4 = 9 mt = 144 px.
+        assert out.shape == (48, 144, 4)
+        # Map centred horizontally: starts at column 64 (4 * 16).
+        assert np.all(out[16:32, 64:80] == map_rgba)
+
+    def test_rejects_non_rgba_map(self) -> None:
+        bad = np.zeros((16, 16, 3), dtype=np.uint8)
+        good = _solid_rgba(16, 16, (0, 0, 0, 255))
+        with pytest.raises(LayoutAssemblyError, match="map_rgba shape"):
+            tile_border_around(bad, good, frame_width_metatiles=1, frame_height_metatiles=1)
+
+    def test_rejects_non_metatile_dimensions(self) -> None:
+        # 15 px is not a multiple of METATILE_SIZE.
+        bad = np.zeros((15, 16, 4), dtype=np.uint8)
+        good = _solid_rgba(16, 16, (0, 0, 0, 255))
+        with pytest.raises(LayoutAssemblyError, match="multiple of 16"):
+            tile_border_around(bad, good, frame_width_metatiles=1, frame_height_metatiles=1)
+
+    def test_rejects_negative_frame(self) -> None:
+        map_rgba = _solid_rgba(16, 16, (0, 0, 0, 255))
+        border_rgba = _solid_rgba(16, 16, (0, 0, 0, 255))
+        with pytest.raises(LayoutAssemblyError, match="frame dimensions must be non-negative"):
+            tile_border_around(
+                map_rgba, border_rgba, frame_width_metatiles=-1, frame_height_metatiles=0
+            )

@@ -68,6 +68,12 @@ NUM_PALETTES_TOTAL: Final = 13
 #: "preview at a glance" range these tools target.
 MAX_RENDER_SCALE: Final = 8
 
+#: Default frame thickness, in metatile units, applied per side when
+#: ``include_border=True``. Mirrors Porymap's "border preview" default
+#: (``BorderMetatilesData::DEFAULT_BORDER_SIZE`` in
+#: ``src/ui/maplayout.cpp``).
+DEFAULT_BORDER_FRAME_METATILES: Final = 7
+
 
 # --- Internal helpers -----------------------------------------------------
 
@@ -290,15 +296,6 @@ def _check_overlays_supported(overlays: list[str]) -> None:
         )
 
 
-def _check_include_border_supported(include_border: bool) -> None:
-    if include_border:
-        raise ProjectError(
-            "include_border=True not yet implemented in this build. "
-            "The border-framing helper lands alongside the fidelity corpus; "
-            "render with include_border=False for now."
-        )
-
-
 # --- 1. render_map --------------------------------------------------------
 
 
@@ -315,7 +312,6 @@ def render_map(
     """
     overlays_list = list(overlays) if overlays is not None else []
     _check_overlays_supported(overlays_list)
-    _check_include_border_supported(include_border)
     _check_scale(scale)
 
     project = _load_project(project_path)
@@ -323,7 +319,11 @@ def render_map(
     primary, secondary = _load_tileset_pair(project, layout_entry)
 
     from porymap_mcp.render.encode import encode_png, package_render_result
-    from porymap_mcp.render.layout import assemble, mapbin_to_metatile_grid
+    from porymap_mcp.render.layout import (
+        assemble,
+        mapbin_to_metatile_grid,
+        tile_border_around,
+    )
 
     tile_bank = _build_combined_tile_bank(project, primary, secondary)
     palette_bank = _build_combined_palette_bank(project, primary, secondary)
@@ -334,14 +334,38 @@ def render_map(
     map_bin = project.read_map_bin(layout_id)
     grid = mapbin_to_metatile_grid(map_bin)
     rgba = assemble(metatile_bank, grid)
+
+    border_extra: dict[str, Any] = {}
+    if include_border:
+        border_bin = project.read_border_bin(layout_id)
+        border_grid = mapbin_to_metatile_grid(border_bin)
+        border_rgba = assemble(metatile_bank, border_grid)
+        rgba = tile_border_around(
+            rgba,
+            border_rgba,
+            frame_width_metatiles=DEFAULT_BORDER_FRAME_METATILES,
+            frame_height_metatiles=DEFAULT_BORDER_FRAME_METATILES,
+        )
+        border_extra = {
+            "border_dimensions": {"width": border_bin.width, "height": border_bin.height},
+            "border_frame_metatiles": DEFAULT_BORDER_FRAME_METATILES,
+        }
+
     rgba = _scale_nearest(rgba, scale)
 
-    area = layout_entry.width * layout_entry.height
+    # area_metatiles is the threshold for palette-vs-RGBA mode. With border
+    # included the rendered image grows by the frame; encode_png compares
+    # *metatiles*, so reflect the full output extent here.
+    frame_pad = 2 * DEFAULT_BORDER_FRAME_METATILES if include_border else 0
+    metatiles_w = layout_entry.width + frame_pad
+    metatiles_h = layout_entry.height + frame_pad
+    area = metatiles_w * metatiles_h
     png_bytes, encoding = encode_png(rgba, area_metatiles=area)
 
     summary = (
         f"Rendered {map_name} ({layout_entry.width}x{layout_entry.height} metatiles, "
-        f"scale={scale}x) -> {len(png_bytes)} byte PNG ({encoding})."
+        f"scale={scale}x{', border included' if include_border else ''}) -> "
+        f"{len(png_bytes)} byte PNG ({encoding})."
     )
     extra: dict[str, Any] = {
         "project_path": _posix_str(project.root),
@@ -355,6 +379,7 @@ def render_map(
         "tilesets": {"primary": primary.name, "secondary": secondary.name},
         "include_border": include_border,
         "overlays": overlays_list,
+        **border_extra,
     }
     return package_render_result(png_bytes, summary=summary, extra=extra)
 

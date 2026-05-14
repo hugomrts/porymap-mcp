@@ -369,10 +369,38 @@ class TestRenderMap:
         with pytest.raises(ProjectError, match="overlays not yet implemented"):
             rendering.render_map(str(project), "MAP_TEST_TOWN", overlays=["collision"])
 
-    def test_rejects_include_border(self, tmp_path: Path) -> None:
+    def test_include_border_wraps_map_in_border_frame(self, tmp_path: Path) -> None:
+        # Border.bin in the fixture references metatile 0 (colour A red), so
+        # include_border=True should produce a map with a red frame around
+        # the original map content. Frame default is 7 metatiles per side =
+        # 7*16 = 112 px each side.
         project = _build_project(tmp_path)
-        with pytest.raises(ProjectError, match="include_border=True not yet implemented"):
-            rendering.render_map(str(project), "MAP_TEST_TOWN", include_border=True)
+        result = rendering.render_map(str(project), "MAP_TEST_TOWN", include_border=True)
+        rgba = _decode_tool_result_image(result)
+
+        from porymap_mcp.tools.rendering import DEFAULT_BORDER_FRAME_METATILES
+
+        frame_px = DEFAULT_BORDER_FRAME_METATILES * 16  # 112
+        # Map: 3x2 metatiles = 48x32 px. Output: 48+2*112 = 272 wide,
+        # 32+2*112 = 256 tall.
+        assert rgba.shape == (32 + 2 * frame_px, 48 + 2 * frame_px, 4)
+        # Top-left corner is the border (red, colour A).
+        assert tuple(int(c) for c in rgba[0, 0]) == (8, 0, 0, 255)
+        # Centre of the map area: position (frame_px + 8, frame_px + 8) is
+        # the centre of metatile (0, 0) of the original map → metatile 0
+        # → colour A red.
+        assert tuple(int(c) for c in rgba[frame_px + 8, frame_px + 8]) == (8, 0, 0, 255)
+        # Centre of the original map's metatile (1, 0) (colour C blue).
+        assert tuple(int(c) for c in rgba[frame_px + 8, frame_px + 16 + 8]) == (0, 0, 8, 255)
+
+        sc = cast(dict[str, object], result.structured_content)
+        assert sc["include_border"] is True
+        assert sc["border_dimensions"] == {"width": 2, "height": 2}
+        assert sc["border_frame_metatiles"] == DEFAULT_BORDER_FRAME_METATILES
+        assert sc["pixel_dimensions"] == {
+            "width": 48 + 2 * frame_px,
+            "height": 32 + 2 * frame_px,
+        }
 
     @pytest.mark.parametrize("scale", [0, -1, 9, 1000])
     def test_rejects_out_of_range_scale(self, tmp_path: Path, scale: int) -> None:

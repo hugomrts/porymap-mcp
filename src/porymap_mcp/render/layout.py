@@ -144,6 +144,80 @@ def clip_region(
     return cx1, cy1, cx2, cy2
 
 
+def tile_border_around(
+    map_rgba: np.ndarray,
+    border_rgba: np.ndarray,
+    *,
+    frame_width_metatiles: int,
+    frame_height_metatiles: int,
+) -> np.ndarray:
+    """Wrap ``map_rgba`` in a frame of tiled ``border_rgba``.
+
+    Replicates Porymap's "include border" export mode: the small border
+    ``MapBin`` (typically 2x2 metatiles) is tiled across the frame
+    surrounding the map. The frame is ``frame_width_metatiles`` thick on
+    the left and right and ``frame_height_metatiles`` thick on the top
+    and bottom (Porymap defaults to 7 per side, see
+    ``BorderMetatilesData::DEFAULT_BORDER_SIZE`` in
+    ``src/ui/maplayout.cpp``).
+
+    The border tiles by its own pixel dimensions: pixel ``(x, y)`` in the
+    output frame outside the map comes from
+    ``border_rgba[y % bH, x % bW]``, where ``(bH, bW)`` are the border's
+    height and width in pixels. The tiling phase is anchored at the
+    top-left of the output buffer — same as Porymap.
+
+    Args:
+        map_rgba: ``uint8[H, W, 4]`` — the assembled map RGBA from
+            :func:`assemble`. ``H`` and ``W`` must be positive multiples
+            of :data:`METATILE_SIZE`.
+        border_rgba: ``uint8[bH, bW, 4]`` — the assembled border RGBA
+            (typically 32x32 for vanilla Gen-3). ``bH`` and ``bW`` must
+            be positive multiples of :data:`METATILE_SIZE`.
+        frame_width_metatiles: Frame thickness on the left and right
+            sides, in metatile units. Must be non-negative.
+        frame_height_metatiles: Frame thickness on the top and bottom
+            sides, in metatile units. Must be non-negative.
+
+    Returns:
+        A C-contiguous ``uint8[H + 2*FH, W + 2*FW, 4]`` RGBA image,
+        where ``FH = frame_height_metatiles * METATILE_SIZE`` and
+        ``FW = frame_width_metatiles * METATILE_SIZE``.
+
+    Raises:
+        LayoutAssemblyError: shape/dtype violation on either input, or
+            a negative frame dimension.
+    """
+    _validate_rgba(map_rgba, name="map_rgba")
+    _validate_rgba(border_rgba, name="border_rgba")
+    if frame_width_metatiles < 0 or frame_height_metatiles < 0:
+        raise LayoutAssemblyError(
+            f"frame dimensions must be non-negative metatile counts "
+            f"(got width={frame_width_metatiles}, height={frame_height_metatiles})"
+        )
+
+    fh_px = frame_height_metatiles * METATILE_SIZE
+    fw_px = frame_width_metatiles * METATILE_SIZE
+    map_h, map_w = int(map_rgba.shape[0]), int(map_rgba.shape[1])
+    total_h = map_h + 2 * fh_px
+    total_w = map_w + 2 * fw_px
+
+    # Fast path: zero frame — return the map as-is (with a copy so the
+    # caller cannot mutate the input through the returned buffer).
+    if fh_px == 0 and fw_px == 0:
+        return map_rgba.copy()
+
+    bh, bw = int(border_rgba.shape[0]), int(border_rgba.shape[1])
+    # Tile the border across the entire output via modulo indexing — one
+    # numpy fancy-index pass, no per-pixel Python loop.
+    ys = np.arange(total_h) % bh
+    xs = np.arange(total_w) % bw
+    out: np.ndarray = border_rgba[ys[:, None], xs[None, :], :].copy()
+    # Paste the map into the centre.
+    out[fh_px : fh_px + map_h, fw_px : fw_px + map_w] = map_rgba
+    return out
+
+
 def mapbin_to_metatile_grid(map_bin: MapBin) -> np.ndarray:
     """Adapt an L1 :class:`MapBin` into the ``uint16[H, W]`` grid this
     module consumes.
@@ -160,6 +234,21 @@ def mapbin_to_metatile_grid(map_bin: MapBin) -> np.ndarray:
 
 
 # --- Validation helpers ----------------------------------------------------
+
+
+def _validate_rgba(rgba: np.ndarray, *, name: str) -> None:
+    """Shared shape/dtype check for RGBA pixel buffers."""
+    if rgba.ndim != 3 or rgba.shape[2] != 4:
+        raise LayoutAssemblyError(f"{name} shape {rgba.shape} is not (H, W, 4)")
+    if rgba.dtype != np.uint8:
+        raise LayoutAssemblyError(f"{name} dtype must be uint8, got {rgba.dtype}")
+    if rgba.shape[0] == 0 or rgba.shape[1] == 0:
+        raise LayoutAssemblyError(f"{name} has a zero pixel dimension: {rgba.shape}")
+    if rgba.shape[0] % METATILE_SIZE != 0 or rgba.shape[1] % METATILE_SIZE != 0:
+        raise LayoutAssemblyError(
+            f"{name} dimensions {rgba.shape[0]}x{rgba.shape[1]} are not a "
+            f"multiple of {METATILE_SIZE} pixels"
+        )
 
 
 def _validate_bank(bank: np.ndarray) -> None:

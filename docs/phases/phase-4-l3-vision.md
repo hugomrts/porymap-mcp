@@ -158,6 +158,73 @@ Goldens live under `tests/fixtures/renders/`. CI loads both PNGs, converts each 
 
 ## 9. Session log
 
+### 2026-05-14 — `tile_border_around` + `render_map(include_border=True)` shipped
+
+Implementation slice 7. Replaces the `include_border=True` "not yet
+implemented" raise from slice 6 with a real wrap-around frame, matching
+Porymap's "include border" exporter.
+
+**Primitive** `tile_border_around(map_rgba, border_rgba, *,
+frame_width_metatiles, frame_height_metatiles) -> uint8[H+2*FH, W+2*FW, 4]`
+in `render/layout.py`:
+
+- Border tiles by its own pixel dimensions: pixel `(x, y)` in the
+  output frame outside the map comes from `border_rgba[y % bH, x % bW]`,
+  anchored at the top-left of the output buffer — same as Porymap.
+- Implementation is a single numpy fancy-index pass (`border[ys[:,None],
+  xs[None,:], :]`), no per-pixel Python loop. C-contiguous output.
+- Shared `_validate_rgba(rgba, *, name)` helper enforces uint8 +
+  (H, W, 4) + non-zero + multiple-of-METATILE_SIZE dimensions; reused
+  for both inputs.
+- Zero-frame short-circuit returns a *copy* (not the input) so callers
+  cannot mutate the input through the output.
+
+**Wiring** in `tools/rendering.py::render_map`:
+
+- Removed `_check_include_border_supported` raise.
+- When `include_border=True`: read `border.bin` via
+  `project.read_border_bin(layout_id)`, run it through
+  `mapbin_to_metatile_grid` + `assemble` against the SAME combined
+  metatile bank as the map, then call `tile_border_around(...)` with
+  the new `DEFAULT_BORDER_FRAME_METATILES=7` constant (Porymap's
+  `BorderMetatilesData::DEFAULT_BORDER_SIZE`).
+- `area_metatiles` passed to `encode_png` is widened by the frame so
+  palette-vs-RGBA mode selection still applies the ADR-0010 threshold
+  correctly when border inflation pushes the area over 4096.
+- Structured content gains `border_dimensions` and
+  `border_frame_metatiles` when `include_border=True`.
+
+**+7 unit tests** under `tests/unit/render/test_layout.py`
+(`TestTileBorderAround`): solid-border wraps a solid map (corner +
+centre + edge pixel asserts + map-region equality), modulo tiling phase
+(border with a recognisable corner block repeats correctly across the
+frame), zero-frame returns an independent copy, asymmetric frame
+shape, 3 validation cases (non-RGBA shape, non-metatile dimensions,
+negative frame). The existing
+`TestRenderMap::test_rejects_include_border` is replaced by
+`test_include_border_wraps_map_in_border_frame`, which decodes the PNG
+through Pillow and asserts: output shape = map + 2x frame; top-left
+corner = border colour (red, from border.bin → metatile 0 → palette 0);
+map-centre pixel offset by `frame_px` rows/cols = expected map
+metatile colour; structured content carries the new keys. Suite: 432
+→ **439 passing**.
+
+`ruff check` + `ruff format --check` + `mypy --strict src/porymap_mcp`
+(28 source files) + `pytest --no-cov` all clean.
+
+Notes for the next slice (overlays):
+
+- `_check_overlays_supported` is the next extension point. Each overlay
+  name (`collision`, `elevation`, `grid`, `events`) dispatches to a
+  function in `render/overlays.py` that mutates the assembled RGBA in
+  place. Pass `force_rgba=True` to `encode_png` whenever any overlay is
+  requested — overlays render with alpha < 255.
+- Border framing happens BEFORE scale-up; overlays should also be
+  applied BEFORE scale-up so they sit at 1px per source pixel rather
+  than blocky. The current sequence in `render_map` is: assemble → (if
+  border) tile_border_around → scale_nearest → encode. Overlays slot
+  in between `tile_border_around` and `scale_nearest`.
+
 ### 2026-05-14 — `tools/rendering.py` shipped (end-to-end render wiring)
 
 Implementation slice 6 — the slice that finally consumes `compose` +

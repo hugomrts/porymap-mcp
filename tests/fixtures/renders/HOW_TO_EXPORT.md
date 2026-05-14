@@ -2,6 +2,20 @@
 
 > This document is for **the human running Porymap**. Claude can't run Porymap; this is the one step that requires you.
 
+## Prerequisites
+
+From the repo root, install `porymap-mcp` in editable mode so `vendor_case.py` can import the parsers:
+
+```bash
+pip install -e .
+```
+
+(No need for `[dev]` or `[render]` extras — the vendor script only needs the L1 parsers.)
+
+## Shell-syntax note
+
+All multi-line commands below use bash `\` line continuations. On **PowerShell**, replace each `\` at end-of-line with a backtick `` ` ``, or put the whole command on one line.
+
 The fidelity corpus is the last technical gate before `v1.0.0`. CI must be able to compare every byte of our rendered RGBA against Porymap's own RGBA for the same map. If they match across the corpus, we have proof that the L3 renderer is faithful. If they drift, we have a debuggable failure case.
 
 This file documents the **5 reference cases** and the exact Porymap flags you should use when exporting each one. The export takes ~15 minutes total.

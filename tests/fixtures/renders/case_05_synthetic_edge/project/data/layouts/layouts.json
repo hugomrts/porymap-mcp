@@ -1,0 +1,17 @@
+{
+  "layouts_table_label": "gMapLayouts",
+  "layouts": [
+    {
+      "id": "LAYOUT_EDGECASETOWN",
+      "name": "EdgeCaseTown_Layout",
+      "width": 30,
+      "height": 20,
+      "primary_tileset": "gTileset_EdgePrimary",
+      "secondary_tileset": "gTileset_EdgeSecondary",
+      "border_filepath": "data/layouts/EdgeCaseTown/border.bin",
+      "blockdata_filepath": "data/layouts/EdgeCaseTown/map.bin",
+      "border_width": 4,
+      "border_height": 4
+    }
+  ]
+}

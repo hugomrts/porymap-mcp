@@ -18,7 +18,7 @@ def build_server() -> FastMCP:
     """Construct the FastMCP server with all tools registered."""
     from fastmcp import FastMCP
 
-    from porymap_mcp.tools import discovery, events, maps, projects
+    from porymap_mcp.tools import discovery, events, maps, projects, rendering
 
     mcp: FastMCP = FastMCP(
         name="porymap-mcp",
@@ -33,5 +33,6 @@ def build_server() -> FastMCP:
     maps.register(mcp)
     projects.register(mcp)
     events.register(mcp)
+    rendering.register(mcp)
 
     return mcp

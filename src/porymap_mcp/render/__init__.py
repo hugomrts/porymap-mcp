@@ -31,6 +31,15 @@ from porymap_mcp.render.layout import (
     assemble_region,
     clip_region,
     mapbin_to_metatile_grid,
+    tile_border_around,
+)
+from porymap_mcp.render.overlays import (
+    SUPPORTED_OVERLAYS,
+    apply_collision_overlay,
+    apply_elevation_overlay,
+    apply_events_overlay,
+    apply_grid_overlay,
+    apply_overlays,
 )
 
 __all__ = [
@@ -38,9 +47,15 @@ __all__ = [
     "METATILE_SIZE",
     "PALETTE_MODE_MAX_METATILES",
     "PALETTE_SIZE",
+    "SUPPORTED_OVERLAYS",
     "TILE_SIZE",
     "TRIPLE_LAYER_TILES_PER_METATILE",
     "EncodingName",
+    "apply_collision_overlay",
+    "apply_elevation_overlay",
+    "apply_events_overlay",
+    "apply_grid_overlay",
+    "apply_overlays",
     "assemble",
     "assemble_region",
     "clip_region",
@@ -50,4 +65,5 @@ __all__ = [
     "encode_png",
     "mapbin_to_metatile_grid",
     "package_render_result",
+    "tile_border_around",
 ]

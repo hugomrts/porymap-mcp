@@ -158,6 +158,84 @@ Goldens live under `tests/fixtures/renders/`. CI loads both PNGs, converts each 
 
 ## 9. Session log
 
+### 2026-05-14 — `render/overlays.py` shipped (collision / elevation / grid / events)
+
+Implementation slice 8. Replaces the `_check_overlays_supported` raise
+from slices 6–7 with real overlay rendering, closing the overlay menu
+from phase-4 §4.
+
+**Module** `render/overlays.py` ships four overlay functions plus a
+small dispatcher:
+
+- `apply_collision_overlay(rgba, map_bin, *, frame_offset_px=(0,0))` —
+  alpha-blends a translucent red square (collision 1), magenta
+  (collision 2), purple (collision 3); passable cells untouched.
+- `apply_elevation_overlay(...)` — paints a distinct hue per value of
+  the 4-bit elevation field. v1 ships hues only — numeric labels would
+  require a bundled font and are deferred.
+- `apply_grid_overlay(rgba, map_bin, ...)` — 1-px black lines at every
+  metatile boundary inside the map region; the border frame (when
+  present) is left alone.
+- `apply_events_overlay(rgba, map_json, ...)` — 12x12 outlined squares
+  centred on each event's `(x, y)`, colour-coded by class
+  (object=yellow / warp=red / coord=cyan / bg=green). Events with
+  missing or non-integer `x`/`y` are silently skipped.
+- `apply_overlays(rgba, overlays, *, map_bin, map_json,
+  frame_offset_px=(0,0))` — ordered dispatch; raises
+  `ProjectError` on unknown names; supported names exposed as the
+  `SUPPORTED_OVERLAYS` constant.
+
+All four call into a shared `_blend_rectangle(rgba, x, y, w, h, colour,
+alpha)` helper that clips to bounds, mutates in place, and restores
+`alpha=255` (the underlying map is opaque; overlays shouldn't introduce
+transparency into the final encode).
+
+**Wiring** in `tools/rendering.py`:
+
+- `_check_overlays_supported` is now a validation pass (raises on
+  unknown names against `SUPPORTED_OVERLAYS`); dispatch happens after
+  bank decode.
+- `render_map`: overlays apply between `tile_border_around` and
+  `_scale_nearest`. `frame_offset_px` becomes `(7*16, 7*16)` when
+  `include_border=True` so overlays sit on the map proper, not the
+  border frame.
+- `render_map_region`: overlays receive a region-clipped `MapBin` so
+  collision/elevation/grid paint inside the sub-buffer at `(0, 0)`. For
+  the `events` overlay, the unclipped `MapJson` is passed with a
+  negative `frame_offset_px = (-y1*16, -x1*16)` so events inside the
+  region land at the right pixel and events outside clip silently.
+- Both tools pass `force_rgba=True` to `encode_png` whenever any
+  overlay is requested (alpha-blended pixels easily exceed the 256-colour
+  palette-PNG cap; ADR-0010 §"PNG encoding").
+
+**+15 tests**:
+
+- `tests/unit/render/test_overlays.py` (+13): pixel-level blend
+  arithmetic for every overlay (collision red shift verified at
+  R=185, G=70, B=70 — `0.45 * (255, 0, 0) + 0.55 * (128, 128, 128)`),
+  elevation distinct-hue invariant across three values, grid
+  on-vs-off-boundary pixel deltas, event-class colour distinctness,
+  frame-offset shifts, events with missing `x`/`y` silently skipped,
+  negative-frame-offset clip, dispatcher unknown-name raise,
+  empty-list no-op, and an every-supported-name smoke test.
+- `tests/unit/tools/test_rendering.py`: the prior reject-tests on
+  `render_map` and `render_map_region` are replaced with positive
+  assertions that `overlays=["grid"]` flips the encoding to
+  `png-rgba-8` and the `overlays` structured-content field round-trips.
+
+Suite: 439 → **454 passing**. `ruff check` + `ruff format --check` +
+`mypy --strict src/porymap_mcp` (29 source files) + `pytest --no-cov`
+all clean.
+
+Notes for the next slice (`return_render` on L1 mutation tools):
+
+- Each mutation tool currently returns `dict[str, Any]`. The new
+  `return_render=True` path can build a `ToolResult` by calling into
+  the same render pipeline (`_build_combined_*_bank` → `assemble` →
+  `encode_png` → `package_render_result(extra=mutation_dict)`).
+- Default `False` everywhere — keep the L1 response shape backward-
+  compatible for callers that don't want the bandwidth.
+
 ### 2026-05-14 — `tile_border_around` + `render_map(include_border=True)` shipped
 
 Implementation slice 7. Replaces the `include_border=True` "not yet

@@ -364,10 +364,20 @@ class TestRenderMap:
                     f"scale=4 block at ({x},{y}) is not uniform / matches 1x"
                 )
 
-    def test_rejects_overlays(self, tmp_path: Path) -> None:
+    def test_rejects_unknown_overlay_name(self, tmp_path: Path) -> None:
         project = _build_project(tmp_path)
-        with pytest.raises(ProjectError, match="overlays not yet implemented"):
-            rendering.render_map(str(project), "MAP_TEST_TOWN", overlays=["collision"])
+        with pytest.raises(ProjectError, match="unknown overlay"):
+            rendering.render_map(str(project), "MAP_TEST_TOWN", overlays=["badname"])
+
+    def test_overlay_forces_rgba_encoding(self, tmp_path: Path) -> None:
+        # Any overlay should bypass palette mode (alpha blending generates
+        # > 256 colours). The default render of the fixture map encodes as
+        # palette-8; adding "grid" must flip it to RGBA-8.
+        project = _build_project(tmp_path)
+        result = rendering.render_map(str(project), "MAP_TEST_TOWN", overlays=["grid"])
+        sc = cast(dict[str, object], result.structured_content)
+        assert sc["encoding"] == "png-rgba-8"
+        assert sc["overlays"] == ["grid"]
 
     def test_include_border_wraps_map_in_border_frame(self, tmp_path: Path) -> None:
         # Border.bin in the fixture references metatile 0 (colour A red), so
@@ -458,12 +468,21 @@ class TestRenderMapRegion:
         with pytest.raises(ProjectError, match="render_map_region: region"):
             rendering.render_map_region(str(project), "MAP_TEST_TOWN", x1, y1, x2, y2)
 
-    def test_rejects_overlays(self, tmp_path: Path) -> None:
+    def test_rejects_unknown_overlay_name(self, tmp_path: Path) -> None:
         project = _build_project(tmp_path)
-        with pytest.raises(ProjectError, match="overlays not yet implemented"):
+        with pytest.raises(ProjectError, match="unknown overlay"):
             rendering.render_map_region(
-                str(project), "MAP_TEST_TOWN", 0, 0, 1, 1, overlays=["grid"]
+                str(project), "MAP_TEST_TOWN", 0, 0, 1, 1, overlays=["nope"]
             )
+
+    def test_overlay_forces_rgba_encoding(self, tmp_path: Path) -> None:
+        project = _build_project(tmp_path)
+        result = rendering.render_map_region(
+            str(project), "MAP_TEST_TOWN", 0, 0, 2, 2, overlays=["grid"]
+        )
+        sc = cast(dict[str, object], result.structured_content)
+        assert sc["encoding"] == "png-rgba-8"
+        assert sc["overlays"] == ["grid"]
 
 
 # --- render_metatile ------------------------------------------------------

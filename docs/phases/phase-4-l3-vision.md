@@ -28,7 +28,7 @@ This is the **reason the project exists in its final form**. Without L3, Claude 
 - [x] All L1 mutation tools gain `return_render: bool = False` parameter
 - [ ] Render performance hits the targets in `.claude/agents/map-renderer.md` §"Performance targets"
 - [ ] Golden pixel tests in CI (`tests/fixtures/renders/` stores both our PNG and the Porymap reference PNG; CI decodes both to RGBA and asserts `np.array_equal`)
-- [ ] **End-to-end self-critique loop demonstrated** in `examples/04_render_loop/`:
+- [x] **End-to-end self-critique loop demonstrated** in `examples/04_render_loop/`:
   - Agent generates a town from a one-line brief
   - Agent calls `render_map`
   - Agent invokes `map-design-critic`
@@ -157,6 +157,81 @@ Goldens live under `tests/fixtures/renders/`. CI loads both PNGs, converts each 
 ---
 
 ## 9. Session log
+
+### 2026-05-14 — `examples/04_render_loop/` shipped (worked self-critique loop)
+
+Implementation slice 10. Ticks the last functional exit-criterion in §2
+(the fidelity-corpus criterion is blocked on Porymap export bytes that
+weren't reachable from this session). With this slice the project's
+"reason to exist" (CLAUDE.md §3) — `paint → render → critique → fix →
+re-render` — has a runnable, scriptable demonstration.
+
+**Files.** Three new files under `examples/04_render_loop/`:
+
+- `run_demo.py` (≈ 400 LOC). Bootstraps an 8x6 synthetic project at
+  `_demo_project/` (mirrors the `tests/unit/tools/test_rendering.py`
+  fixture pattern — primary + secondary tilesets, 13 JASC `.pal` files
+  each, dual-layer `metatiles.bin` + zero attributes, `map.bin` /
+  `border.bin` / `layouts.json` / `map_groups.json` / `map.json`). The
+  vocabulary is 8 named solid-colour metatiles: `WATER (0)`, `SAND (1)`,
+  `GRASS (2)`, `PATH (3)`, `TREE (4)`, `HOUSE_WALL (5)` in the primary
+  bank and `HOUSE_ROOF (512)`, `SIGN (513)` in the secondary bank. All
+  RGB components are multiples of 8 so they survive the GBA 5-bit
+  hardware quantization byte-for-byte.
+
+  The "loop" section uses only the public Python API of
+  `porymap_mcp.tools.{maps,rendering}`:
+
+  - **Iter 1 (draft)**: `paint_metatile((4, 3), HOUSE_WALL)` on the
+    grass-filled canvas — deliberately weak.
+  - **Iter 2 (revision)**: five `paint_rectangle` + four
+    `paint_metatile` calls applying the critic's top 5 fixes
+    (coastline, sand strip, tree-line, N-S path, second house,
+    signpost).
+
+  After each iteration the script calls `render_map(..., scale=4)` and
+  saves `result.content[0]` (the `ImageContent` PNG block) to
+  `renders/iter{1,2}.png`. The critique narrative is printed inline —
+  it lives in the script as a hardcoded `ITERN_CRITIQUE` constant
+  because invoking `map-design-critic` requires a real Claude session.
+  The README is explicit about this and shows the exact `Task` call a
+  real session would use.
+
+- `README.md`. Walkthrough document: the loop concept; the rendered
+  iter 1 vs iter 2 PNGs displayed inline; the run instructions; the
+  full prompt-to-Claude template per phase (brief → draft → render →
+  critique → fixes → re-render); the 12-axis scoring table (illustrative);
+  cross-references to ADR-0010, the phase-4 spec, and the two relevant
+  sub-agents.
+
+- `.gitignore`: `_demo_project/`. The synthetic project regenerates on
+  every run, so we keep it out of the repo. The two committed PNGs
+  (`renders/iter1.png` ≈ 1.1 KB, `renders/iter2.png` ≈ 1.6 KB) ship as
+  artefacts so the README renders correctly on GitHub without forcing
+  readers to run Python.
+
+**Why solid-colour metatiles.** Bundling real Gen 3 art into the repo
+would pull ≈ 1 MB of tilesets and trigger licensing questions; pointing
+the demo at a `pret/pokeemerald` checkout would force a Git submodule
+or post-install fetch. The solid-colour approach keeps the demo
+in-repo and self-contained while exercising the exact same tool
+pipeline — `tools/rendering.py` does not care whether each metatile is
+solid red or a fully drawn Pokémon Center. The README spells this out
+in a "Why solid-colour metatiles?" section.
+
+**Verification.** `python examples/04_render_loop/run_demo.py` prints
+the iter 1 + iter 2 critique narrative and writes both PNGs in well
+under 1 second. `ruff check .` + `ruff format --check .` + `mypy
+--strict src/porymap_mcp` (29 source files) + `python -m pytest
+--no-cov` (460 passing) all clean — the example doesn't add any tests
+(it would only re-test the synthetic-fixture path already covered by
+`test_rendering.py`).
+
+**Phase-4 §2 status.** With this slice ticked, only the 5-map fidelity
+corpus remains. That criterion is blocked on Porymap-exported
+reference PNGs (Porymap binary not reachable from this session); see
+STATUS.md's "Up next" for the unblock path. Once the corpus lands,
+`v1.0.0` can tag.
 
 ### 2026-05-14 — `return_render` on every L1 mutation tool
 

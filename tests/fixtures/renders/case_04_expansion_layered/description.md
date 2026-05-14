@@ -1,15 +1,14 @@
-# Case 04 — Multi-layer expansion map (pokeemerald-expansion)
+# Case 04 — Battle Frontier Outside East (pokeemerald-expansion, triple-layer)
 
 | | |
 |---|---|
 | Project | `rh-hideout/pokeemerald-expansion` |
-| Map | **Your pick** — a map that exercises **triple-layer metatiles** (`enable_triple_layer_metatiles=1` in `porymap.project.cfg`) |
-| Layout id | filled in once you pick the map |
-| Tilesets | filled in once you pick the map |
-| Map size | filled in once you pick the map |
+| Map | `MAP_BATTLE_FRONTIER_OUTSIDE_EAST` (bare name: `BattleFrontier_OutsideEast`) |
+| Layout id | `LAYOUT_BATTLE_FRONTIER_OUTSIDE_EAST` |
+| Tilesets | `gTileset_General` (primary) + `gTileset_BattleFrontierOutsideEast` (secondary) |
 | Include border | **yes** |
 | Dual / triple layer | **triple-layer** (this is the whole point of this case) |
-| Why this case | Vanilla pokeemerald is dual-layer everywhere. The expansion is one of the few publicly available projects shipping triple-layer metatiles, and our renderer's most complex composition branch (3 stacked layers, `enable_triple_layer_metatiles=1`, no `unused_tile_*` fallbacks) needs explicit fidelity coverage. |
+| Why this case | Vanilla pokeemerald is dual-layer everywhere. The expansion is one of the few publicly available projects shipping triple-layer metatiles, and our renderer's most complex composition branch (3 stacked layers, `enable_triple_layer_metatiles=1`, no `unused_tile_*` fallbacks) needs explicit fidelity coverage. The Battle Frontier eastern outdoor map exercises a wide variety of triple-layer metatiles — building tops + ground decoration + foliage — making it a strong cross-section for the renderer's most complex composition branch. |
 
 **Porymap export flags** (per [`HOW_TO_EXPORT.md`](../HOW_TO_EXPORT.md)):
 scale **1×**, show connections **off**, all overlays **off**, include border **on**.
@@ -30,5 +29,5 @@ Once you've picked one, tell me the bare directory name and I'll fill in the mis
    python tests/fixtures/renders/vendor_case.py \
        --case case_04_expansion_layered \
        --pokeemerald /path/to/your/pokeemerald-expansion \
-       --map <YourBareMapName>
+       --map BattleFrontier_OutsideEast
    ```

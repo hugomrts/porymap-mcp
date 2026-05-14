@@ -158,6 +158,37 @@ Goldens live under `tests/fixtures/renders/`. CI loads both PNGs, converts each 
 
 ## 9. Session log
 
+### 2026-05-14 — Public-face docs refreshed for L3 (slice 10b)
+
+Pure docs polish, no source changes. The README and CHANGELOG had not
+been updated since `v0.1.0` (L1) was tagged, so a visitor landing on
+the repo would still read "L3 — planned (v1.0)" while L3 is in fact
+implemented on `main` with 24 registered tools.
+
+Changes:
+
+- `README.md` — refreshed alpha banner (v0.1.0 tagged, L3 implemented,
+  L2 abandoned per ADR-0009, v1.0.0 pending the corpus), reworded the
+  "What it does" bullets (dropped the v0.2 L2 line; added L3 with a
+  link to the example loop + critic agent), updated the capability
+  levels table with checkmark/cross/wrench states, added a new
+  "See your map (L3)" section between the L1 walkthrough and the tool
+  surface (iter1.png + iter2.png displayed inline, score jump
+  quantified, link to `examples/04_render_loop/`), expanded the tool
+  surface section to list `render_map` / `render_map_region` /
+  `render_metatile` and document the `return_render` flag on every
+  mutation tool, cross-linked ADR-0010.
+- `CHANGELOG.md` — added an `[Unreleased] — v1.0.0 candidate` section
+  covering the full L3 surface (every render submodule, the 3 new
+  tools, the `return_render` flag, the extended `ProjectConfig` keys,
+  the worked example, the new error classes, the `render` extra in
+  `pyproject.toml`, the suite size); flagged the fidelity corpus +
+  no-connections + icons-not-yet items under "Known limitations".
+  Clarified `0.1.0`'s "Known limitations" subsection post-ADR-0009.
+
+Suite + lint unchanged: **460 passing**, `ruff` + `ruff format` +
+`mypy --strict src/porymap_mcp` all clean.
+
 ### 2026-05-14 — `examples/04_render_loop/` shipped (worked self-critique loop)
 
 Implementation slice 10. Ticks the last functional exit-criterion in §2

@@ -69,14 +69,14 @@ Resolved decisions live under [`docs/decisions/`](docs/decisions/). No open deci
 
 ## Next session pickup (post-L3, `v1.0.0` ready to tag)
 
-**Branch / PR state.** PR #12 (slice 10 + 10b: example loop + README/CHANGELOG refresh) is **merged into `main`** at commit `f0028b2`. PR #13 (slice 11 + 11b: fidelity corpus + 4 renderer bug fixes) is **open** on `claude/continue-project-ax6Mm`, head `3a0613c`, 11 commits, no conflicts. **Before starting work**: verify PR #13 is merged, then `git checkout main && git pull` for a clean tree. If PR #13 is still open, the next session's job is *just to land it* (review CI, fix any drift) — do not start the v1.0.0 release slice on a stale base.
+**Branch / PR state.** PR #12 (slice 10 + 10b: example loop + README/CHANGELOG refresh) is **merged into `main`** at commit `c3437e9`. PR #13 (slice 11 + 11b: fidelity corpus + 4 renderer bug fixes) is **open** on `claude/continue-project-ax6Mm`, head `32257f6`, 11 commits, no conflicts. **Before starting work**: verify PR #13 is merged, then `git checkout main && git pull` for a clean tree. If PR #13 is still open, the next session's job is *just to land it* (review CI, fix any drift) — do not start the v1.0.0 release slice on a stale base.
 
 **Done in this session** (don't redo):
 
-- ✅ Slice 10 (`d998abd`, in PR #12 merged): `examples/04_render_loop/` — runnable demo + walkthrough README + two committed render PNGs (iter 1/2, score 7→21/36).
-- ✅ Slice 10b (`eb5579f`, in PR #12 merged): `README.md` + `CHANGELOG.md` refreshed for the L3 surface.
-- 📒 Handoff commit `f0028b2` (in PR #12 merged): STATUS + phase-4 doc folded slice 10b into the session log.
-- ✅ Slice 11 (commits `953c2ac` … `e73d6c5`, in PR #13 open):
+- ✅ Slice 10 (`d560b33`, in PR #12 merged): `examples/04_render_loop/` — runnable demo + walkthrough README + two committed render PNGs (iter 1/2, score 7→21/36).
+- ✅ Slice 10b (`d156881`, in PR #12 merged): `README.md` + `CHANGELOG.md` refreshed for the L3 surface.
+- 📒 Handoff commit `c3437e9` (in PR #12 merged): STATUS + phase-4 doc folded slice 10b into the session log.
+- ✅ Slice 11 (commits `bfd9a72` … `a872ead`, in PR #13 open):
   - `tests/fixtures/renders/HOW_TO_EXPORT.md` (incl. `pip install -e .` + PowerShell shell-syntax notes), `vendor_case.py` (copies a minimum project slice for one map from a source pokeemerald checkout, reusing the L1 parsers), and 5 case directories (`case_NN/description.md`).
   - `case_05_synthetic_edge/build_project.py` — deterministic builder for the regression-only synthetic project (30x20 with custom 4x4 border, all `unused_tile_*` slots exercised, primary tileset with < 512 metatile slots to force the bank-padding code path).
   - `tests/integration/test_fidelity.py` — single parametrized test iterating all 5 cases, auto-skipping when project/ or reference.png is missing. Failure messages quote first-mismatch coordinate + percent of diffing pixels.
@@ -85,7 +85,7 @@ Resolved decisions live under [`docs/decisions/`](docs/decisions/). No open deci
     1. **No GBA `& 0xF8` quantization.** Porymap propagates JASC bytes verbatim; our masking was wrong. Removed every quantization site in `render/compose.py`.
     2. **Border-tile phase anchored on the map's top-left, not the output's.** `border[0][0]` lands at output pixel `(fw_px, fh_px)`; tiles outside the map cycle backwards via modulo. One-line fix in `render/layout.py::tile_border_around`.
     3. **Asymmetric border frame.** Porymap uses **7 metatiles horizontal × 5 vertical** (matching half the GBA visible 240x160 screen), not symmetric 7x7. Constants split into `DEFAULT_BORDER_FRAME_METATILES_HORIZONTAL=7` / `DEFAULT_BORDER_FRAME_METATILES_VERTICAL=5`. `structured_content["border_frame_metatiles"]` is now a `{"horizontal": int, "vertical": int}` dict.
-- ✅ Slice 11b (commits `fd2454d` … `3a0613c`, in PR #13 open):
+- ✅ Slice 11b (commits `20fe606` … `32257f6`, in PR #13 open):
   - Vendored case 04 (Battle Frontier Outside East from pokeemerald-expansion).
   - **4th renderer bug fix**: `unused_tile_*` config keys are packed tile-entry words (palette + flips + tile_id), not bare tile_ids. The expansion's `unused_tile_normal=0x3014` decodes as `(tile_id=20, palette=3)`; our code was passing `0x3014=12308` straight as a tile_id, way over the 1024-tile cap, silently exposing `transparency_color=0x000000`. Added `_decode_unused` helper in `render/compose.py`, three call sites.
   - ADR-0010 gains a 4-bullet "Empirical corrections (2026-05-14, after corpus validation)" section. Phase-4 §2 fidelity exit-criterion ticked at 5/5.

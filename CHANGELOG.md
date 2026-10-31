@@ -6,6 +6,12 @@ All notable changes to `porymap-mcp` are documented here. Format follows
 
 ## [Unreleased]
 
+## [1.0.1] — 2026-10-31
+
+### Changed
+
+- README: lead with real-tileset renders (Littleroot Town, Route 101) instead of the synthetic demo.
+
 ## [1.0.0] — 2026-10-31
 
 First stable release. L3 — Vision: server-side map rendering with self-critique loop, validated pixel-for-pixel against Porymap's own export on a 5-map corpus. Phase 4 of the roadmap (see [`docs/phases/phase-4-l3-vision.md`](docs/phases/phase-4-l3-vision.md)).
@@ -117,6 +123,7 @@ tileset-metadata strategy, and per-tool API surfaces.
   ([ADR-0009](docs/decisions/0009-abandon-l2-live-porymap.md)); L3
   rendering ships in `v1.0.0` instead.
 
-[Unreleased]: https://github.com/hugomrts/porymap-mcp/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/hugomrts/porymap-mcp/compare/v1.0.1...HEAD
+[1.0.1]: https://github.com/hugomrts/porymap-mcp/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/hugomrts/porymap-mcp/compare/v0.1.0...v1.0.0
 [0.1.0]: https://github.com/hugomrts/porymap-mcp/releases/tag/v0.1.0

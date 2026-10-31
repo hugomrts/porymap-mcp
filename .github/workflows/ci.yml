@@ -35,15 +35,12 @@ jobs:
 
       - name: Lint (ruff)
         run: ruff check .
-        continue-on-error: true
 
       - name: Format check (ruff)
         run: ruff format --check .
-        continue-on-error: true
 
       - name: Type-check (mypy)
         run: mypy
-        continue-on-error: true
 
       - name: Test (pytest)
         run: pytest -v

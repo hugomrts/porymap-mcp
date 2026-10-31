@@ -4,9 +4,11 @@ All notable changes to `porymap-mcp` are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com); the project adheres to
 [Semantic Versioning](https://semver.org).
 
-## [Unreleased] — `v1.0.0` candidate
+## [Unreleased]
 
-L3 — Vision: server-side map rendering with self-critique loop. Phase 4 of the roadmap (see [`docs/phases/phase-4-l3-vision.md`](docs/phases/phase-4-l3-vision.md)).
+## [1.0.0] — 2026-10-31
+
+First stable release. L3 — Vision: server-side map rendering with self-critique loop, validated pixel-for-pixel against Porymap's own export on a 5-map corpus. Phase 4 of the roadmap (see [`docs/phases/phase-4-l3-vision.md`](docs/phases/phase-4-l3-vision.md)).
 
 `v0.2.0` is intentionally skipped — L2 (Live Porymap) was abandoned per [ADR-0009](docs/decisions/0009-abandon-l2-live-porymap.md). The roadmap jumps from `v0.1.0` (L1) straight to `v1.0.0` (L1 + L3).
 
@@ -14,7 +16,7 @@ L3 — Vision: server-side map rendering with self-critique loop. Phase 4 of the
 
 **Render pipeline** (`src/porymap_mcp/render/`, behind the `render` optional extra — `pip install porymap-mcp[render]`):
 
-- `compose.py` — `decode_tile_bank`, `decode_palette_bank`, `decode_metatile_bank`. Decodes `tiles.png` (4-bpp indexed), JASC `.pal` files (with mandatory GBA 5-bit hardware quantization, `c & 0xF8`), and dual-/triple-layer metatiles; fills missing layers per `unused_tile_{normal,covered,split}` × `LayerType` per [ADR-0010](docs/decisions/0010-l3-renderer-design.md).
+- `compose.py` — `decode_tile_bank`, `decode_palette_bank`, `decode_metatile_bank`. Decodes `tiles.png` (4-bpp indexed), JASC `.pal` files (colours propagated verbatim, as Porymap does), and dual-/triple-layer metatiles; fills missing layers per `unused_tile_{normal,covered,split}` × `LayerType` per [ADR-0010](docs/decisions/0010-l3-renderer-design.md).
 - `layout.py` — `assemble`, `assemble_region`, `clip_region`, `mapbin_to_metatile_grid`, `tile_border_around`. Pure-numpy fancy-index assembly of metatile grids into pixel buffers; modulo-tiled border framing.
 - `overlays.py` — `apply_{collision,elevation,grid,events}_overlay` + dispatcher. Alpha-blended translucent overlays for the four supported modes.
 - `encode.py` — `encode_png` (palette-vs-RGBA selection per ADR-0010 §"PNG encoding": palette mode iff opaque, ≤ 4096 metatiles, ≤ 256 distinct RGB), `package_render_result` (FastMCP `ToolResult` + `ImageContent` packaging).
@@ -25,22 +27,33 @@ L3 — Vision: server-side map rendering with self-critique loop. Phase 4 of the
 - `render_map_region(project_path, map_name, x1, y1, x2, y2, *, overlays=[], scale=1)` — partial render for big maps.
 - `render_metatile(project_path, tileset_name, metatile_id, *, scale=4)` — single-metatile preview.
 
-**`return_render: bool = False` on every L1 mutation tool** (12 tools — 7 in `maps.py`, 5 in `events.py`). When `True`, the response includes a render of the post-mutation map; default `False` preserves the historical `dict` contract.
+**`return_render: bool = False` on every map and event mutation tool** (12 tools — 7 in `maps.py`, 5 in `events.py`). When `True`, the response includes a render of the post-mutation map; default `False` preserves the historical `dict` contract.
 
 **Extended `ProjectConfig`** reads `transparency_color`, `unused_tile_{normal,covered,split}` from `porymap.project.cfg` — required by the L3 metatile composer.
 
 **Worked example** at [`examples/04_render_loop/`](examples/04_render_loop/) — runnable demo of the full `paint → render → critique → fix → re-render` loop with two committed render PNGs showing iter-1 → iter-2 score improvement.
 
+**Fidelity corpus** under `tests/fixtures/renders/`: Littleroot Town, Route 101, Granite Cave 1F and Battle Frontier Outside East (vendored from a `pokeemerald-expansion` checkout, with Porymap-exported reference PNGs) plus a synthetic edge case. `tests/integration/test_fidelity.py` asserts pixel-identical output on all 5; `pytest --update-golden` regenerates the synthetic reference.
+
 **New errors:** `TilesPngFormatError`, `PaletteFormatError`, `MetatilesBinFormatError`, `LayoutAssemblyError`, `PngEncodeError`.
+
+### Fixed
+
+Four renderer bugs surfaced by validating against real Porymap exports (corrections recorded in [ADR-0010](docs/decisions/0010-l3-renderer-design.md) §"Empirical corrections"):
+
+- **Palette colours are no longer quantized.** The `& 0xF8` GBA 5-bit mask on JASC palette values was wrong: Porymap uses the `.pal` bytes verbatim. (`8dd6028`)
+- **Border tiles are phased on the map's top-left, not the image's.** `border[0][0]` now lands on the first map tile, and tiles outside the map cycle backwards from there. (`8dd6028`)
+- **The border frame is asymmetric: 7 metatiles horizontally, 5 vertically**, matching Porymap (half the GBA's 240×160 screen) instead of a symmetric 7×7. `border_frame_metatiles` in the render metadata is now a `{"horizontal", "vertical"}` dict. (`8dd6028`)
+- **`unused_tile_*` config values are decoded as packed tile-entry words** (tile id + flips + palette), not bare tile ids. pokeemerald-expansion's `unused_tile_normal=0x3014` previously overflowed the tile bank and exposed the transparency colour. (`71cee3e`)
 
 ### Tooling
 
 - `pyproject.toml`: new `render` optional extra (`Pillow>=10.0`, `numpy>=1.26`). Mypy override for `numpy.*` / `PIL.*`.
-- Tests: **460 passing** (308 L1 + 152 new under `tests/unit/render/` + `tests/unit/tools/test_rendering.py`).
+- Tests: **465 passing** (308 L1 + 152 render unit tests + 5 fidelity cases).
+- CI now blocks on `ruff check`, `ruff format --check` and `mypy --strict`; ruff and mypy are pinned to a minor/major range in the `dev` extra.
 
 ### Known limitations
 
-- 5-map fidelity corpus (`tests/fixtures/renders/`) not yet committed — Porymap-exported reference PNGs pending. `v1.0.0` tags when the corpus passes `np.array_equal(decoded(ours), decoded(reference))` in CI.
 - Map connections not rendered in `v1.0` (reference Porymap exports use "show connections = off"); a future `v1.1` may add `include_connections: bool`.
 - Overlay event squares are coloured rectangles, not icons; a future enhancement bundles 12×12 PNG icons under `src/porymap_mcp/render/assets/icons/`.
 
@@ -104,5 +117,6 @@ tileset-metadata strategy, and per-tool API surfaces.
   ([ADR-0009](docs/decisions/0009-abandon-l2-live-porymap.md)); L3
   rendering ships in `v1.0.0` instead.
 
-[Unreleased]: https://github.com/hugomrts/porymap-mcp/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/hugomrts/porymap-mcp/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/hugomrts/porymap-mcp/compare/v0.1.0...v1.0.0
 [0.1.0]: https://github.com/hugomrts/porymap-mcp/releases/tag/v0.1.0

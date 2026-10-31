@@ -5,14 +5,14 @@
 [![CI](https://github.com/hugomrts/porymap-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/hugomrts/porymap-mcp/actions/workflows/ci.yml)
 [![PyPI](https://img.shields.io/pypi/v/porymap-mcp)](https://pypi.org/project/porymap-mcp/)
 [![Python](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/hugomrts/porymap-mcp/blob/main/LICENSE)
 
 | Iteration 1: first draft | Iteration 2: after one critique pass |
 |:---:|:---:|
-| ![Iteration 1 render](examples/04_render_loop/renders/iter1.png) | ![Iteration 2 render](examples/04_render_loop/renders/iter2.png) |
+| ![Iteration 1 render](https://raw.githubusercontent.com/hugomrts/porymap-mcp/main/examples/04_render_loop/renders/iter1.png) | ![Iteration 2 render](https://raw.githubusercontent.com/hugomrts/porymap-mcp/main/examples/04_render_loop/renders/iter2.png) |
 | Score **7 / 36** | Score **21 / 36** |
 
-Both images were rendered by the server itself. The agent **paints** the map, **renders** it to PNG, gets the image back in the tool response, **critiques** it against a 12-criterion Gen 3 design rubric, fixes the top issues and renders again. Runnable walkthrough: [`examples/04_render_loop/`](examples/04_render_loop/).
+Both images were rendered by the server itself. The agent **paints** the map, **renders** it to PNG, gets the image back in the tool response, **critiques** it against a 12-criterion Gen 3 design rubric, fixes the top issues and renders again. Runnable walkthrough: [`examples/04_render_loop/`](https://github.com/hugomrts/porymap-mcp/tree/main/examples/04_render_loop).
 
 ---
 
@@ -28,7 +28,7 @@ It does **not** edit tilesets (creating new metatiles stays in Porymap), and it 
 
 ## Compatibility
 
-Built and tested against [`rh-hideout/pokeemerald-expansion`](https://github.com/rh-hideout/pokeemerald-expansion), the base most active hacks use today ([ADR-0002](docs/decisions/0002-target-pokeemerald-expansion-first.md)). Vanilla [`pret/pokeemerald`](https://github.com/pret/pokeemerald) uses the same file formats and loads the same way. Bit masks and paths are read from your `porymap.project.cfg`, so nothing is hard-coded per fork. `pokefirered` and `pokeruby` projects are recognised but not covered by the test corpus yet.
+Built and tested against [`rh-hideout/pokeemerald-expansion`](https://github.com/rh-hideout/pokeemerald-expansion), the base most active hacks use today ([ADR-0002](https://github.com/hugomrts/porymap-mcp/blob/main/docs/decisions/0002-target-pokeemerald-expansion-first.md)). Vanilla [`pret/pokeemerald`](https://github.com/pret/pokeemerald) uses the same file formats and loads the same way. Bit masks and paths are read from your `porymap.project.cfg`, so nothing is hard-coded per fork. `pokefirered` and `pokeruby` projects are recognised but not covered by the test corpus yet.
 
 ## Install
 
@@ -125,22 +125,22 @@ The three render tools accept `overlays` (`collision`, `elevation`, `grid`, `eve
 
 ## Design records
 
-Every decision that is hard to reverse is written up as an ADR in [`docs/decisions/`](docs/decisions/README.md):
+Every decision that is hard to reverse is written up as an ADR in [`docs/decisions/`](https://github.com/hugomrts/porymap-mcp/blob/main/docs/decisions/README.md):
 
-- [ADR-0001](docs/decisions/0001-fastmcp-as-mcp-framework.md): FastMCP as the MCP framework
-- [ADR-0002](docs/decisions/0002-target-pokeemerald-expansion-first.md): pokeemerald-expansion as the primary target
-- [ADR-0003](docs/decisions/0003-project-class-and-config-driven-format.md): a single `Project` entry point, config-driven formats
-- [ADR-0004](docs/decisions/0004-tileset-metadata-source.md): where tileset metadata comes from
-- [ADR-0005](docs/decisions/0005-l1-discovery-tools-api.md), [ADR-0006](docs/decisions/0006-l1-mutation-tools-api.md), [ADR-0007](docs/decisions/0007-l1-event-tools-api.md): discovery, mutation and event tool contracts
-- [ADR-0008](docs/decisions/0008-prefab-library-and-paint-prefab.md): prefab library and `paint_prefab`
-- [ADR-0009](docs/decisions/0009-abandon-l2-live-porymap.md): why live Porymap hot-reload was dropped
-- [ADR-0010](docs/decisions/0010-l3-renderer-design.md): renderer design, including the four corrections found while validating against Porymap
+- [ADR-0001](https://github.com/hugomrts/porymap-mcp/blob/main/docs/decisions/0001-fastmcp-as-mcp-framework.md): FastMCP as the MCP framework
+- [ADR-0002](https://github.com/hugomrts/porymap-mcp/blob/main/docs/decisions/0002-target-pokeemerald-expansion-first.md): pokeemerald-expansion as the primary target
+- [ADR-0003](https://github.com/hugomrts/porymap-mcp/blob/main/docs/decisions/0003-project-class-and-config-driven-format.md): a single `Project` entry point, config-driven formats
+- [ADR-0004](https://github.com/hugomrts/porymap-mcp/blob/main/docs/decisions/0004-tileset-metadata-source.md): where tileset metadata comes from
+- [ADR-0005](https://github.com/hugomrts/porymap-mcp/blob/main/docs/decisions/0005-l1-discovery-tools-api.md), [ADR-0006](https://github.com/hugomrts/porymap-mcp/blob/main/docs/decisions/0006-l1-mutation-tools-api.md), [ADR-0007](https://github.com/hugomrts/porymap-mcp/blob/main/docs/decisions/0007-l1-event-tools-api.md): discovery, mutation and event tool contracts
+- [ADR-0008](https://github.com/hugomrts/porymap-mcp/blob/main/docs/decisions/0008-prefab-library-and-paint-prefab.md): prefab library and `paint_prefab`
+- [ADR-0009](https://github.com/hugomrts/porymap-mcp/blob/main/docs/decisions/0009-abandon-l2-live-porymap.md): why live Porymap hot-reload was dropped
+- [ADR-0010](https://github.com/hugomrts/porymap-mcp/blob/main/docs/decisions/0010-l3-renderer-design.md): renderer design, including the four corrections found while validating against Porymap
 
-The project's vision document is [`MCP_PORYMAP.md`](MCP_PORYMAP.md) (in French).
+The project's vision document is [`MCP_PORYMAP.md`](https://github.com/hugomrts/porymap-mcp/blob/main/MCP_PORYMAP.md) (in French).
 
 ## Prefabs
 
-`paint_prefab` ships with three stamps: `single_tree`, `flower_patch` and `house_small`. Their metatile IDs follow vanilla `gTileset_General` conventions. If your fork uses custom tilesets, register your own prefabs in `porymap_mcp.prefabs.LIBRARY` (a plain dict). See [ADR-0008](docs/decisions/0008-prefab-library-and-paint-prefab.md).
+`paint_prefab` ships with three stamps: `single_tree`, `flower_patch` and `house_small`. Their metatile IDs follow vanilla `gTileset_General` conventions. If your fork uses custom tilesets, register your own prefabs in `porymap_mcp.prefabs.LIBRARY` (a plain dict). See [ADR-0008](https://github.com/hugomrts/porymap-mcp/blob/main/docs/decisions/0008-prefab-library-and-paint-prefab.md).
 
 ## Develop
 
@@ -152,7 +152,7 @@ pre-commit install
 pytest
 ```
 
-CI blocks on `ruff check`, `ruff format --check`, `mypy --strict` and the full test suite (Linux and macOS, Python 3.11 to 3.13). [`CLAUDE.md`](CLAUDE.md) describes the conventions used to develop this repo with Claude Code, including the sub-agents in [`.claude/agents/`](.claude/agents/), which anyone can reuse.
+CI blocks on `ruff check`, `ruff format --check`, `mypy --strict` and the full test suite (Linux and macOS, Python 3.11 to 3.13). [`CLAUDE.md`](https://github.com/hugomrts/porymap-mcp/blob/main/CLAUDE.md) describes the conventions used to develop this repo with Claude Code, including the sub-agents in [`.claude/agents/`](https://github.com/hugomrts/porymap-mcp/tree/main/.claude/agents), which anyone can reuse.
 
 ## Acknowledgements
 
@@ -163,4 +163,4 @@ CI blocks on `ruff check`, `ruff format --check`, `mypy --strict` and the full t
 
 ## License
 
-[MIT](LICENSE)
+[MIT](https://github.com/hugomrts/porymap-mcp/blob/main/LICENSE)

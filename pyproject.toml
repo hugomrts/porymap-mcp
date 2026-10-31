@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "porymap-mcp"
-version = "0.1.0.dev0"
+version = "1.0.0"
 description = "MCP server that lets AI agents author Porymap-compatible Pokémon Gen-3 decompilation maps."
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -12,7 +12,7 @@ requires-python = ">=3.11"
 authors = [{ name = "Hugo Martins" }]
 keywords = ["mcp", "porymap", "pokeemerald", "rom-hack", "model-context-protocol", "fastmcp"]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",

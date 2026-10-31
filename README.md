@@ -7,12 +7,9 @@
 [![Python](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/hugomrts/porymap-mcp/blob/main/LICENSE)
 
-| Iteration 1: first draft | Iteration 2: after one critique pass |
-|:---:|:---:|
-| ![Iteration 1 render](https://raw.githubusercontent.com/hugomrts/porymap-mcp/main/examples/04_render_loop/renders/iter1.png) | ![Iteration 2 render](https://raw.githubusercontent.com/hugomrts/porymap-mcp/main/examples/04_render_loop/renders/iter2.png) |
-| Score **7 / 36** | Score **21 / 36** |
+![Littleroot Town, rendered by porymap-mcp](https://raw.githubusercontent.com/hugomrts/porymap-mcp/main/docs/images/littleroot_town.png)
 
-Both images were rendered by the server itself. The agent **paints** the map, **renders** it to PNG, gets the image back in the tool response, **critiques** it against a 12-criterion Gen 3 design rubric, fixes the top issues and renders again. Runnable walkthrough: [`examples/04_render_loop/`](https://github.com/hugomrts/porymap-mcp/tree/main/examples/04_render_loop).
+*Littleroot Town from `pokeemerald-expansion`, rendered by the server's `render_map` tool with `include_border=True`. Pixel-identical to Porymap's own PNG export.*
 
 ---
 
@@ -21,6 +18,10 @@ Both images were rendered by the server itself. The agent **paints** the map, **
 - **Reads** a pokeemerald-family project: maps, layouts, tilesets, metatiles, events, prefabs.
 - **Writes** the same files Porymap writes: metatiles, rectangles, flood fills, borders, prefabs, warps, NPCs, signs (with a script stub), triggers, new maps and map-group registration. Writes are atomic.
 - **Renders** maps, regions and single metatiles to PNG and returns them as MCP `image` content blocks. Output is pixel-identical to Porymap's own export on a 5-map reference corpus (Littleroot Town, Route 101, Granite Cave 1F, Battle Frontier Outside East, plus a synthetic edge case).
+
+![Route 101, rendered by porymap-mcp](https://raw.githubusercontent.com/hugomrts/porymap-mcp/main/docs/images/route_101.png)
+
+*Route 101, same tool and settings, also pixel-identical to Porymap's export.*
 
 Porymap does not need to be running. Open the project in Porymap whenever you like: your manual workflow is untouched.
 
@@ -89,6 +90,17 @@ The agent will typically:
 Every write tool returns the list of files it modified. Open the project in Porymap, or rebuild your ROM: the map is there.
 
 > **Tileset labels.** Littleroot Town, Oldale Town and Petalburg City all use `gTileset_General` + `gTileset_Petalburg`, in both vanilla `pokeemerald` and `pokeemerald-expansion`. There is no `gTileset_LittlerootTown`. If your fork renames or adds tilesets, ask the agent to call `list_tilesets` first and pick from what it returns.
+
+## Self-critique loop
+
+Because renders come back inside the tool response, the agent can look at its own work. It **paints** the map, **renders** it, **critiques** the image against a 12-criterion Gen 3 design rubric (path geometry, tile variety, building placement, border softness, …), fixes the top issues and renders again.
+
+| Iteration 1: first draft | Iteration 2: after one critique pass |
+|:---:|:---:|
+| ![Iteration 1 render](https://raw.githubusercontent.com/hugomrts/porymap-mcp/main/examples/04_render_loop/renders/iter1.png) | ![Iteration 2 render](https://raw.githubusercontent.com/hugomrts/porymap-mcp/main/examples/04_render_loop/renders/iter2.png) |
+| Score **7 / 36** | Score **21 / 36** |
+
+The demo runs on a small synthetic tileset made of flat colour blocks, so it works without a pokeemerald checkout. On a real project, renders use your actual tilesets, as in the Littleroot Town image above. Runnable walkthrough: [`examples/04_render_loop/`](https://github.com/hugomrts/porymap-mcp/tree/main/examples/04_render_loop).
 
 ## Tools
 

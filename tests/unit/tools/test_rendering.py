@@ -663,8 +663,8 @@ class TestMutationReturnRender:
         assert render["dimensions"] == {"width": 3, "height": 2}
         # Combined summary mentions both the mutation and the render.
         assert isinstance(sc["summary"], str)
-        assert "Painted" in cast(str, sc["summary"])
-        assert "Rendered" in cast(str, sc["summary"])
+        assert "Painted" in sc["summary"]
+        assert "Rendered" in sc["summary"]
 
     def test_paint_rectangle_return_render(self, tmp_path: Path) -> None:
         from porymap_mcp.tools import maps
@@ -676,7 +676,7 @@ class TestMutationReturnRender:
         assert not isinstance(result, dict)
         sc = cast(dict[str, object], result.structured_content)
         assert "render" in sc
-        assert sc["tiles_changed"] >= 1
+        assert cast(int, sc["tiles_changed"]) >= 1
 
     def test_noop_paint_metatile_still_renders_when_requested(self, tmp_path: Path) -> None:
         # paint_metatile with the same value as already on the tile is a

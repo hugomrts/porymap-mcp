@@ -4,6 +4,7 @@ add_sign, add_trigger, remove_event)."""
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -87,7 +88,7 @@ def _build_project(root: Path, *, poryscript: bool = True) -> Path:
     return root
 
 
-def _read_map_json(root: Path) -> dict:
+def _read_map_json(root: Path) -> dict[str, Any]:
     text = (root / "data/maps/X/map.json").read_text(encoding="utf-8")
     doc = mapjson.read(text)
     return {

@@ -1,6 +1,6 @@
 # Phase 5 — Release & community launch
 
-> **Status:** Not started (blocked on Phase 4 ship)
+> **Status:** In progress (opened 2026-10-31). `v1.0.0` is on `main`; tag, GitHub Release and first PyPI upload are owner actions.
 > **Estimated effort:** 2–3 days
 > **Closes when:** `pip install porymap-mcp` works for the public, the project is announced in both the MCP and the ROM hack communities, and at least one external user has shipped a map with it.
 
@@ -14,14 +14,14 @@ Take `porymap-mcp` from "works on Hugo's laptop" to "any ROM hacker can install 
 
 ## 2. Exit criteria
 
-- [ ] `pip install porymap-mcp` works from PyPI on Linux, macOS, Windows
+- [ ] `pip install porymap-mcp` works from PyPI on Linux, macOS, Windows — `publish.yml` ready, waiting on the PyPI trusted publisher + `v1.0.0` tag
 - [ ] `uvx porymap-mcp` works (zero-install via uv)
 - [ ] README pass-the-5-minute-test (see `docs-curator` agent's rubric)
 - [ ] All 5 example folders in `examples/` are runnable end-to-end on a clean machine
-- [ ] CHANGELOG complete from `0.1.0` to `1.0.0`
-- [ ] LICENSE (MIT) at repo root
+- [x] CHANGELOG complete from `0.1.0` to `1.0.0`
+- [x] LICENSE (MIT) at repo root
 - [ ] CONTRIBUTING.md complete
-- [ ] GitHub Release with notes for `v1.0.0`
+- [ ] GitHub Release with notes for `v1.0.0` — commands prepared (see §8, 2026-10-31)
 - [ ] PyPI page renders correctly (description, badges, link to docs)
 - [ ] MCP marketplace submission (if/when there's a registry — verify state at release time)
 - [ ] **Announced in ≥ 3 places**: rh-hideout Discord, PokéCommunity (tools forum), Twitter/X, LinkedIn — *check each community's AI-content rules first* (see `rom-hack-domain` agent)
@@ -32,12 +32,12 @@ Take `porymap-mcp` from "works on Hugo's laptop" to "any ROM hacker can install 
 ## 3. Pre-release polish
 
 ### Packaging
-- [ ] `pyproject.toml` complete: name, version, description, authors, license, classifiers, dependencies, optional `[render]` extra for Pillow
-- [ ] Wheel + sdist build cleanly
-- [ ] `python -m porymap_mcp` is the documented entry point (also: `porymap-mcp` console script)
+- [x] `pyproject.toml` complete: name, version, description, authors, license, classifiers, dependencies, optional `[render]` extra for Pillow
+- [x] Wheel + sdist build cleanly (`uv build` + `twine check --strict` pass on 1.0.0)
+- [x] `python -m porymap_mcp` is the documented entry point (also: `porymap-mcp` console script)
 
 ### Docs
-- [ ] README at the level of `docs-curator`'s rubric
+- [ ] README at the level of `docs-curator`'s rubric — rewritten for v1.0.0 (PR #15, absolute URLs in #17), not yet scored by `docs-curator`
 - [ ] `docs/guides/`: "Authoring your first map", "Setting up L2", "Custom prefabs", "Troubleshooting"
 - [ ] `docs/reference/`: full tool reference (auto-generated from FastMCP signatures + docstrings)
 - [ ] All 5 `examples/` folders complete with screenshots
@@ -56,12 +56,15 @@ Take `porymap-mcp` from "works on Hugo's laptop" to "any ROM hacker can install 
 
 When cutting `v1.0.0`:
 
-- [ ] All tests green on CI matrix
-- [ ] Visual regression tests all pass on the 5-map corpus
-- [ ] CHANGELOG `[Unreleased]` section becomes `[1.0.0] — YYYY-MM-DD`
-- [ ] `__version__` bumped in `src/porymap_mcp/__init__.py`
-- [ ] Commit: `chore: release v1.0.0`, tag `v1.0.0`
-- [ ] Push tag → triggers PyPI publish workflow
+- [x] All tests green on CI matrix (ruff, ruff format, mypy now blocking)
+- [x] Visual regression tests all pass on the 5-map corpus
+- [x] CHANGELOG `[Unreleased]` section becomes `[1.0.0] — 2026-10-31`
+- [x] `__version__` bumped in `src/porymap_mcp/__init__.py` (and `pyproject.toml`)
+- [x] Commit: `chore: release v1.0.0` (PR #16)
+- [ ] Configure the PyPI pending trusted publisher (`hugomrts/porymap-mcp`, workflow `publish.yml`, environment `pypi`) — owner, on pypi.org
+- [ ] Optional: create the `pypi` environment on GitHub with a required reviewer — owner
+- [ ] Tag `v1.0.0` on `main` (after the publish workflow is merged) — owner
+- [ ] Push tag → triggers PyPI publish workflow (`.github/workflows/publish.yml`)
 - [ ] GitHub Release notes published
 - [ ] Announcement posts drafted, reviewed for tone (no "🚀"), sent
 - [ ] Smoke test from a clean VM: `pipx install porymap-mcp`, run first example
@@ -107,7 +110,37 @@ Document this in `MAINTENANCE.md`.
 
 ## 8. Session log
 
-*(empty — phase not started)*
+### 2026-10-31 — v1.0.0 release slice
+
+Opened the phase. One PR per step, all squash-merged by the owner:
+
+- **PR #14 `ci: make ruff check, ruff format and mypy blocking`.** CI had been
+  green while `ruff format --check` and `mypy` failed behind
+  `continue-on-error`. Fixed 4 mypy errors in `tests/unit/tools/`, excluded
+  `*.md` from ruff (ruff 0.17 formats code fences in ADRs), pinned
+  `ruff>=0.17,<0.18` and `mypy>=2.4,<3` in the `dev` extra, aligned the
+  pre-commit revs.
+- **PR #15 `docs(readme): rewrite for the v1.0.0 release`.** Pitch, iter1/iter2
+  renders up top, pip/uvx install, MCP registration, first map in 5 minutes,
+  24-tool table, ADR index, pointer to `MCP_PORYMAP.md`. The
+  `gTileset_LittlerootTown` placeholder exists in neither vanilla
+  `pokeemerald` nor the expansion (checked pret's `headers.h`): Littleroot uses
+  `gTileset_General` + `gTileset_Petalburg` in both. README now uses that.
+- **PR #16 `chore: release v1.0.0`.** CHANGELOG `[1.0.0] — 2026-10-31` with the
+  four renderer fixes, version `1.0.0`, classifier Production/Stable.
+- **PR #17 `ci: publish to PyPI via trusted publishing on v* tags`.**
+  `publish.yml` (tag/version check, build, `twine check --strict`, OIDC upload
+  from the `pypi` environment) + absolute README URLs so PyPI renders images
+  and links.
+
+This lifts the earlier "PyPI deferred" directive: the owner asked for the
+publish workflow; the first upload happens when they push the tag.
+
+**Remaining (owner):** PyPI pending publisher, tag `v1.0.0`, GitHub Release
+(notes = CHANGELOG `[1.0.0]` section), then smoke-test
+`uvx --from "porymap-mcp[render]" porymap-mcp`. **Remaining (next sessions):**
+`docs-curator` pass on the README, CONTRIBUTING.md, issue/PR templates,
+examples 01–03 and 05, announcements.
 
 ---
 

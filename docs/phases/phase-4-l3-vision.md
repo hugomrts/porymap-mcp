@@ -1,6 +1,6 @@
 # Phase 4 — L3: Vision (rendering + self-critique loop)
 
-> **Status:** Active (phase 3 abandoned per [ADR-0009](../decisions/0009-abandon-l2-live-porymap.md); this is the immediate next phase)
+> **Status:** Closed 2026-10-31. Every functional exit criterion is met; the `v1.0.0` tag and publication moved to [phase 5](phase-5-release.md). The formal perf benchmark stays open below as a non-blocking follow-up.
 > **Estimated effort:** 3–5 days
 > **Target version:** `v1.0.0` (first stable). `v0.2.0` is intentionally skipped; the roadmap goes `v0.1.0` (L1, shipped) → `v1.0.0` (L3).
 > **Closes when:** the agent can paint a map, see a PNG of its output in the tool response, run it through the design critic, apply fixes, and converge on a quality result — all in a single conversation.
@@ -34,7 +34,7 @@ This is the **reason the project exists in its final form**. Without L3, Claude 
   - Agent invokes `map-design-critic`
   - Agent applies the top 3 fixes
   - Agent re-renders, score improves measurably
-- [ ] Tagged `v1.0.0` (first stable)
+- [ ] Tagged `v1.0.0` (first stable) — release commit `chore: release v1.0.0` is on `main`; tagging is an owner action tracked in [phase 5](phase-5-release.md) §4
 
 ---
 
@@ -157,6 +157,14 @@ Goldens live under `tests/fixtures/renders/`. CI loads both PNGs, converts each 
 ---
 
 ## 9. Session log
+
+### 2026-10-31 — Phase closed, release handed to phase 5
+
+No renderer change. The `v1.0.0` release slice (CI hardening, README
+rewrite, CHANGELOG + version bump, PyPI publish workflow) ran as phase 5
+work; see [`phase-5-release.md`](phase-5-release.md) §8. The perf
+benchmark (`tests/integration/test_perf.py`) remains the only unticked
+functional item and does not block the release.
 
 ### 2026-05-14 — Fidelity corpus 5/5 pass + 4th renderer bug fix (slice 11b)
 

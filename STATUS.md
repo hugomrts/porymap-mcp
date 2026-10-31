@@ -4,42 +4,43 @@
 > **Always read this first** when starting a new Claude Code session.
 > Updated at the end of every session that moves the project forward.
 
-**Last updated:** 2026-05-14
-**Last session:** **Fidelity corpus 5/5 pass — phase-4 §2 fully closed, project is `v1.0.0`-ready.** PR #12 on `claude/continue-project-ax6Mm` now carries slices 10, 10b, 11, and 11b. Validating against real Porymap exports of Littleroot Town, Route 101, Granite Cave 1F (vanilla maps from a pokeemerald-expansion checkout) and Battle Frontier Outside East (expansion triple-layer map) surfaced **four** latent bugs in the renderer: (1) `& 0xF8` GBA quantization on palette decode — wrong, Porymap propagates JASC bytes verbatim — removed; (2) border-tile phase anchored on the output's top-left, not the map's — fixed; (3) border frame default was symmetric 7x7 but Porymap uses asymmetric `7 horizontal x 5 vertical` — split constants; (4) `unused_tile_*` config keys are packed tile-entry words (palette + flips + tile_id), not bare tile_ids — added decoder. After all four fixes: **all 5 corpus cases pass pixel-identical** vs Porymap. Suite: 460 → **465 passing**, 0 skipped. ADR-0010 gains four "Empirical corrections". Per-slice writeups in [`docs/phases/phase-4-l3-vision.md`](docs/phases/phase-4-l3-vision.md) §9.
+**Last updated:** 2026-10-31
+**Last session:** **v1.0.0 release slice — phase 4 closed, phase 5 opened.** Four PRs, squash-merged one by one: #14 makes `ruff check`, `ruff format --check` and `mypy` blocking in CI (they had been failing silently behind `continue-on-error`); #15 rewrites the README as a shipped product (renders up top, pip/uvx, MCP registration, 24-tool table, ADR index) and replaces the bogus `gTileset_LittlerootTown` with `gTileset_Petalburg`; #16 is `chore: release v1.0.0` (CHANGELOG `[1.0.0] — 2026-10-31` with the four renderer fixes, version 1.0.0, Production/Stable); #17 adds `.github/workflows/publish.yml` (PyPI trusted publishing on `v*` tags) and absolute README URLs for PyPI. The tag, GitHub Release and PyPI publisher configuration are owner actions. Details in [`docs/phases/phase-5-release.md`](docs/phases/phase-5-release.md) §8.
 
 ---
 
 ## Current phase
 
-**Phase 4 — L3: Vision** (effectively closed; tagging `v1.0.0` is the next housekeeping step).
-Active doc: [`docs/phases/phase-4-l3-vision.md`](docs/phases/phase-4-l3-vision.md)
+**Phase 5 — Release & community launch** (in progress).
+Active doc: [`docs/phases/phase-5-release.md`](docs/phases/phase-5-release.md)
 
-L3 closes the project's quality loop (`paint → render → critique → fix → re-render`) by rendering maps to PNG server-side and returning them as MCP `image` content blocks. The full surface ships: 3 render tools, `return_render` on every L1 mutation, all 4 overlays, asymmetric border framing, and a 5-case fidelity corpus that matches Porymap's own export pixel-for-pixel. The renderer design lives in [ADR-0010](docs/decisions/0010-l3-renderer-design.md) (with a 4-bullet "Empirical corrections" addendum from the corpus validation).
+`main` carries the `1.0.0` release commit. What remains before `v1.0.0` is public is all on the owner's side:
 
-PyPI publish (Phase 5) remains deferred per owner directive: `v1.0.0` ships as a GitHub tag first; the PyPI announcement waits for a deliberate communication push.
+1. On pypi.org, add a pending trusted publisher: project `porymap-mcp`, owner `hugomrts`, repo `porymap-mcp`, workflow `publish.yml`, environment `pypi`.
+2. Tag `v1.0.0` on `main` and push it → `publish.yml` builds, checks the tag against `pyproject.toml`, and uploads to PyPI.
+3. `gh release create v1.0.0` with the CHANGELOG `[1.0.0]` section as notes.
+4. Smoke test: `uvx --from "porymap-mcp[render]" porymap-mcp` on a clean machine.
+
+Phase 4 (L3 — Vision) is closed; its only unticked functional item, the formal perf benchmark, is a non-blocking follow-up.
 
 ---
 
 ## What exists in the repo today
 
-- `MCP_PORYMAP.md` — strategic vision (FR).
-- `CLAUDE.md` — operating manual.
-- `STATUS.md` — this file.
-- `.claude/agents/` — 7 sub-agents.
-- `.claude/settings.json`, `.gitignore`.
-- `docs/phases/` — phase 1 closed, phase 2 closed (v0.1.0 shipped), phase 3 abandoned (ADR-0009), phase 4 active, phase 5 deferred.
-- `docs/decisions/` — ADRs 0001–0010 (0009 abandons L2, 0010 locks the L3 renderer design).
-- `pyproject.toml`, `LICENSE`, `README.md` (with "first map in 5 minutes"), `.pre-commit-config.yaml`, `.github/workflows/ci.yml`. `render` optional extra carries `Pillow>=10.0` + `numpy>=1.26` (ADR-0010); mypy override added for `numpy.*` and `PIL.*`.
-- `src/porymap_mcp/` — L1 surface (parsers, project, tools, prefabs, 21 L1 tools) plus the `render/` package: `__init__.py` re-exports + `compose.py` (`decode_tile_bank`, `decode_palette_bank`, `decode_metatile_bank` — ADR-0010 §"Source files read" + §"Metatile composition") + `layout.py` (`assemble`, `assemble_region`, `clip_region`, `mapbin_to_metatile_grid` — ADR-0010 §"Layout assembly") + `encode.py` (`encode_png`, `package_render_result`, `PALETTE_MODE_MAX_METATILES`, `EncodingName` — ADR-0010 §"PNG encoding" + §"MCP return shape"). `tools/rendering.py` wires the three render tools end-to-end (`render_map`, `render_map_region`, `render_metatile`), bringing the FastMCP surface to 24 tools. `ProjectConfig` reads `transparency_color`, `unused_tile_normal`, `unused_tile_covered`, `unused_tile_split`. Errors gain `TilesPngFormatError`, `PaletteFormatError`, `MetatilesBinFormatError`, `LayoutAssemblyError`, and `PngEncodeError`.
-- `tests/` — **465 passing cases**, 0 skipped (308 L1 + 43 in `test_compose.py` + 39 in `test_layout.py` + 18 in `test_encode.py` + 13 in `test_overlays.py` + 39 in `test_rendering.py` + **5 in `tests/integration/test_fidelity.py`**). Synthetic PNG + JASC `.pal` + in-memory tile/palette/metatile/grid banks are built in-test where possible; the fidelity corpus is the only place that ships committed binary fixtures (5 small reference PNGs ≈ 700 KB total + vendored project slices for cases 1-4 ≈ a few MB).
-- `examples/04_render_loop/` — `run_demo.py` (≈ 400 LOC bootstrapping a synthetic project + driving the iter-1/iter-2 loop via `porymap_mcp.tools.{maps,rendering}`), `README.md` (loop concept + prompt template + 12-axis scoring table + cross-refs), and two committed render artefacts `renders/iter{1,2}.png` showing the score jump from 7/36 to 21/36. `_demo_project/` is gitignored — regenerated each run.
-- `tests/fixtures/renders/` — fidelity corpus (5 cases, all green): `case_01_littleroot_town`, `case_02_route_101`, `case_03_granite_cave_1f`, `case_04_expansion_layered` (Battle Frontier Outside East), `case_05_synthetic_edge`. Each carries `description.md`, `reference.png`, and a `project/` slice (cases 1-4 vendored from a pokeemerald-expansion checkout via `vendor_case.py`; case 5 generated by `build_project.py`). `HOW_TO_EXPORT.md` documents the maintainer's Porymap export procedure for adding/regenerating cases. The `--update-golden` pytest flag (in `tests/conftest.py`) overwrites case-5's `reference.png`; cases 1-4 are regenerated by re-exporting from Porymap + re-running `vendor_case.py`.
+- `MCP_PORYMAP.md` — strategic vision (FR). `CLAUDE.md` — operating manual. `STATUS.md` — this file.
+- `.claude/agents/` — 7 sub-agents. `.claude/settings.json`, `.gitignore`.
+- `docs/phases/` — phases 1, 2, 4 closed; phase 3 abandoned (ADR-0009); phase 5 in progress.
+- `docs/decisions/` — ADRs 0001–0010.
+- `pyproject.toml` (version `1.0.0`, `render` extra = Pillow + numpy, `dev` extra pins `ruff>=0.17,<0.18` and `mypy>=2.4,<3`), `uv.lock`, `LICENSE`, `README.md` (v1.0.0, absolute URLs), `CHANGELOG.md` (`[1.0.0] — 2026-10-31`), `.pre-commit-config.yaml` (ruff v0.17.3, mypy v2.4.1).
+- `.github/workflows/ci.yml` — Linux + macOS × Python 3.11–3.13; `ruff check`, `ruff format --check`, `mypy`, `pytest`, all blocking. Ruff ignores `*.md`.
+- `.github/workflows/publish.yml` — on `v*` tags: tag/version check, `python -m build`, `twine check --strict`, upload via `pypa/gh-action-pypi-publish` with OIDC from the `pypi` environment.
+- `src/porymap_mcp/` — 24 MCP tools (21 L1 + 3 render), parsers, `Project`, prefabs, `render/` (compose, layout, overlays, encode).
+- `tests/` — **465 passing**, 0 skipped, including the 5-case fidelity corpus (`tests/integration/test_fidelity.py`, pixel-identical vs Porymap).
+- `examples/04_render_loop/` — runnable paint → render → critique demo + committed `renders/iter{1,2}.png`.
 
-**Future enhancement** (deferred, optional): replace overlay event squares with 12x12 PNG icons under `src/porymap_mcp/render/assets/icons/` + font-based elevation labels — both require committing binary assets.
+**Verified locally (2026-10-31):** `ruff check .`, `ruff format --check .`, `mypy` (58 files) clean; `pytest` 465 passed; `uv build` + `twine check --strict` pass on the 1.0.0 wheel and sdist; `actionlint` clean on both workflows.
 
-**Verified locally + in CI:** `python -m pytest --no-cov` → 465 passed, 0 skipped; `python -m pytest tests/integration/test_fidelity.py -v` → 5/5 pixel-identical vs Porymap; `ruff check .` → clean; `ruff format --check .` → clean; `mypy --strict src/porymap_mcp` → clean on 29 source files.
-
-**Integration-tested:** `rh-hideout/pokeemerald-expansion` (L1 + L3 — fidelity corpus exercises 4 maps from a real expansion checkout, all matching Porymap export pixel-for-pixel).
+**Integration-tested:** `rh-hideout/pokeemerald-expansion` (L1 + L3).
 
 ---
 
@@ -49,9 +50,9 @@ PyPI publish (Phase 5) remains deferred per owner directive: `v1.0.0` ships as a
 |-------|------|--------|-------------|
 | 1 — Spec | Finalize tool surface, formats, scope of L1 | ✅ Closed | — |
 | 2 — L1 (Filesystem) | MCP server that edits map files without Porymap running | ✅ Closed | `v0.1.0` tagged 2026-05-13. |
-| 3 — L2 (Live Porymap) | Porymap hot-reloads as the agent edits | ❌ Abandoned | See [ADR-0009](docs/decisions/0009-abandon-l2-live-porymap.md). `v0.2.0` skipped. |
-| 4 — L3 (Vision) | Server renders maps to PNG | ✅ Effectively closed | Tag `v1.0.0` once PR #13 lands. Optional: formalize the perf budget via `tests/integration/test_perf.py` (informally well within budget on every corpus case). |
-| 5 — Release | Publish to PyPI + community announcement | Deferred | `v1.0.0` ships as a GitHub tag first per the long-standing owner directive. PyPI publish remains deferred until there's a deliberate communication push. |
+| 3 — L2 (Live Porymap) | Porymap hot-reloads as the agent edits | ❌ Abandoned | See [ADR-0009](docs/decisions/0009-abandon-l2-live-porymap.md). |
+| 4 — L3 (Vision) | Server renders maps to PNG | ✅ Closed 2026-10-31 | Optional: `tests/integration/test_perf.py`. |
+| 5 — Release | Publish to PyPI + community announcement | 🛠 In progress | Owner: PyPI trusted publisher, tag `v1.0.0`, GitHub Release. Then README `docs-curator` pass, CONTRIBUTING, templates, announcements. |
 
 ---
 
@@ -67,44 +68,23 @@ Resolved decisions live under [`docs/decisions/`](docs/decisions/). No open deci
 
 ---
 
-## Next session pickup (post-L3, `v1.0.0` ready to tag)
+## Next session pickup
 
-**Branch / PR state.** PR #12 (slice 10 + 10b: example loop + README/CHANGELOG refresh) is **merged into `main`** at commit `c3437e9`. PR #13 (slice 11 + 11b: fidelity corpus + 4 renderer bug fixes) is **open** on `claude/continue-project-ax6Mm`, head `32257f6`, 11 commits, no conflicts. **Before starting work**: verify PR #13 is merged, then `git checkout main && git pull` for a clean tree. If PR #13 is still open, the next session's job is *just to land it* (review CI, fix any drift) — do not start the v1.0.0 release slice on a stale base.
+**Before starting:** `git checkout main && git pull`. Check whether `v1.0.0` is tagged (`git ls-remote --tags origin`) and whether the `Publish to PyPI` run succeeded. If the publish failed, fix that first.
 
-**Done in this session** (don't redo):
-
-- ✅ Slice 10 (`d560b33`, in PR #12 merged): `examples/04_render_loop/` — runnable demo + walkthrough README + two committed render PNGs (iter 1/2, score 7→21/36).
-- ✅ Slice 10b (`d156881`, in PR #12 merged): `README.md` + `CHANGELOG.md` refreshed for the L3 surface.
-- 📒 Handoff commit `c3437e9` (in PR #12 merged): STATUS + phase-4 doc folded slice 10b into the session log.
-- ✅ Slice 11 (commits `bfd9a72` … `a872ead`, in PR #13 open):
-  - `tests/fixtures/renders/HOW_TO_EXPORT.md` (incl. `pip install -e .` + PowerShell shell-syntax notes), `vendor_case.py` (copies a minimum project slice for one map from a source pokeemerald checkout, reusing the L1 parsers), and 5 case directories (`case_NN/description.md`).
-  - `case_05_synthetic_edge/build_project.py` — deterministic builder for the regression-only synthetic project (30x20 with custom 4x4 border, all `unused_tile_*` slots exercised, primary tileset with < 512 metatile slots to force the bank-padding code path).
-  - `tests/integration/test_fidelity.py` — single parametrized test iterating all 5 cases, auto-skipping when project/ or reference.png is missing. Failure messages quote first-mismatch coordinate + percent of diffing pixels.
-  - `conftest.py` — maintainer-only `--update-golden` pytest CLI flag.
-  - **3 renderer bug fixes** uncovered while validating cases 1-3 against real Porymap exports of Littleroot Town, Route 101, Granite Cave 1F (all from a pokeemerald-expansion checkout):
-    1. **No GBA `& 0xF8` quantization.** Porymap propagates JASC bytes verbatim; our masking was wrong. Removed every quantization site in `render/compose.py`.
-    2. **Border-tile phase anchored on the map's top-left, not the output's.** `border[0][0]` lands at output pixel `(fw_px, fh_px)`; tiles outside the map cycle backwards via modulo. One-line fix in `render/layout.py::tile_border_around`.
-    3. **Asymmetric border frame.** Porymap uses **7 metatiles horizontal × 5 vertical** (matching half the GBA visible 240x160 screen), not symmetric 7x7. Constants split into `DEFAULT_BORDER_FRAME_METATILES_HORIZONTAL=7` / `DEFAULT_BORDER_FRAME_METATILES_VERTICAL=5`. `structured_content["border_frame_metatiles"]` is now a `{"horizontal": int, "vertical": int}` dict.
-- ✅ Slice 11b (commits `20fe606` … `32257f6`, in PR #13 open):
-  - Vendored case 04 (Battle Frontier Outside East from pokeemerald-expansion).
-  - **4th renderer bug fix**: `unused_tile_*` config keys are packed tile-entry words (palette + flips + tile_id), not bare tile_ids. The expansion's `unused_tile_normal=0x3014` decodes as `(tile_id=20, palette=3)`; our code was passing `0x3014=12308` straight as a tile_id, way over the 1024-tile cap, silently exposing `transparency_color=0x000000`. Added `_decode_unused` helper in `render/compose.py`, three call sites.
-  - ADR-0010 gains a 4-bullet "Empirical corrections (2026-05-14, after corpus validation)" section. Phase-4 §2 fidelity exit-criterion ticked at 5/5.
-
-**End-state.**
-- `server.build_server()` registers 24 tools (21 L1 + 3 render).
-- Fidelity corpus: **5/5 cases pass pixel-identical** vs Porymap reference exports (cases 1-2: 0/261120 diff; case 3: 0/161280; case 4: 0/1805312; case 5: 0/385088 vs our own previous render).
-- Suite: **465 passing**, 0 skipped (308 L1 + 43 `test_compose.py` + 39 `test_layout.py` + 18 `test_encode.py` + 13 `test_overlays.py` + 39 `test_rendering.py` + 5 `test_fidelity.py`).
-- `ruff check .` + `ruff format --check .` + `mypy --strict src/porymap_mcp` (29 source files) all clean.
+**Done this session** (don't redo): PRs #14–#17 described in "Last session" above.
 
 **Up next, in order:**
 
-1. **Tag `v1.0.0`** (after PR #13 merges). `CHANGELOG.md` already has the `[Unreleased] — v1.0.0 candidate` section; bump heading to `[1.0.0] — <date>`, append a one-line note at the top of the section pointing at the four bug fixes (with their commit shas), then `git tag v1.0.0 && git push --tags`. PyPI publish is still deferred per the long-standing owner directive — `v1.0.0` ships as a GitHub tag first.
+1. **If the owner has tagged:** verify https://pypi.org/project/porymap-mcp/ renders (images, links, badges) and that `uvx --from "porymap-mcp[render]" porymap-mcp` starts.
+2. **README pass with `docs-curator`** against its rubric (phase 5 §3 "Docs").
+3. **Community readiness** (phase 5 §3): `CONTRIBUTING.md`, issue templates, PR template, code of conduct, security policy.
+4. **Examples 01–03 and 05** — only `04_render_loop` exists.
+5. *Non-blocking:* perf benchmark `tests/integration/test_perf.py` (see phase 4 §2).
 
-2. **Perf benchmarks** (the only exit-criterion item still formally unmeasured). Add `tests/integration/test_perf.py` that times `render_map` on case 1 (small town), case 5 (30x20 synthetic), and a synthetic 60x120, asserting each falls inside the targets in `.claude/agents/map-renderer.md` §"Performance targets". Not blocking `v1.0.0` — informal measurements during fidelity work showed every case well under budget (case 04 = 1376x1312 px renders in ~250 ms cold) — but useful as a CI guard. Use the in-repo synthetic project from `case_05_synthetic_edge/build_project.py` for the 60x120 case (extend `MAP_WIDTH/HEIGHT` constants).
+**Owner preferences recorded this session:** one PR per step, conventional-commit titles, squash merge by the owner; commits authored as Hugo Martins, no AI attribution in commits or PRs; `main` is protected (PR + CI required); never edit `MCP_PORYMAP.md`.
 
-3. *Optional enhancement, deferred:* swap overlay event squares for 12×12 PNG icons + bundle a small bitmap font for elevation labels. Both need committed binary assets and a `pyproject.toml` wheel-include change.
-
-**Useful current state for the next session:**
+## Technical pointers (renderer + corpus)
 
 - **Fidelity corpus shape.** `tests/fixtures/renders/case_NN_*/` — each contains `description.md`, `reference.png` (Porymap-exported, except case 5 which is our own render), `VENDOR.md` (auto-generated by `vendor_case.py`, records the source checkout + source map for provenance), and `project/` (vendored slice).  Case 5 has `build_project.py` + a generated `project/` instead. Run `python -m pytest tests/integration/test_fidelity.py -v` to validate; pass `--update-golden` to overwrite goldens (only meaningful for case 5).
 - **Adding a new corpus case.** Add a `case_NN_<slug>/` directory + `description.md`, append a `Case(...)` row in `tests/integration/test_fidelity.py::CASES`, then either run `vendor_case.py` (if it's vendored from a real project) or write a `build_project.py` (if synthetic). Test runner auto-discovers.
@@ -122,20 +102,20 @@ Resolved decisions live under [`docs/decisions/`](docs/decisions/). No open deci
   - `border[0][0]` at output `(0, 0)` in `tile_border_around`.
   - Treating `unused_tile_*` as a bare `tile_id`.
 
-**Stable infrastructure pointers (still accurate post-corpus):**
+**Stable infrastructure pointers:**
 
 - `tools/_common.py::maybe_attach_render(response, *, project_path, map_name, return_render)` is the mutation-tool wrap; late-imports FastMCP + `tools.rendering.render_map`. Default returns `response` unchanged so existing dict-shape callers and tests still pass.
 - `parsers/attributes.py` decodes `metatile_attributes.bin` into a tuple of `MetatileAttributes` (`.layer_type: int`). The `metatile_layer_type_mask` is config-driven (vanilla `0x6000`, expansion `0xF000`).
 - `parsers/tileset.py` enumerates tileset directories and produces `TilesetEntry` with paths to `tiles.png`, `palettes/`, `metatiles.bin`, `metatile_attributes.bin`.
 - `parsers/mapbin.py::MapBin` is the in-memory layout shape; `render/layout.py::mapbin_to_metatile_grid(mb)` adapts it to the numpy grid.
 - `ProjectConfig` reads `enable_triple_layer_metatiles`, `transparency_color`, `unused_tile_normal`, `unused_tile_covered`, `unused_tile_split`. `tools/rendering.py` passes `layers=3 if enabled else 2` into `decode_metatile_bank`.
-- Mypy in CI runs in an isolated `uv tool` env that does not see numpy/PIL; the override in `pyproject.toml` keeps `mypy --strict` clean. Don't remove it without adding stub packages.
+- CI installs `.[dev]` (which includes Pillow + numpy) before running `mypy`; the `numpy.*` / `PIL.*` `ignore_missing_imports` override in `pyproject.toml` keeps `mypy --strict` clean in environments without the `render` extra (e.g. the pre-commit hook). Don't remove it without adding stub packages.
 
 ## Outstanding chores (not blocking `v1.0.0`)
 
-- **PyPI publish** (Phase 5). Deferred per owner directive — `v1.0.0` ships as a GitHub tag first; PyPI announcement waits for a deliberate communication push.
-- **Perf benchmarks**. Add a `tests/integration/test_perf.py` that asserts `render_map` hits the targets in `.claude/agents/map-renderer.md` §"Performance targets" on case 1, case 5, and a synthetic 60x120. Informally well within budget on every corpus case; formal CI guard would catch a future regression.
-- **`gTileset_LittlerootTown` example in README.** The README's "first map" example uses `gTileset_LittlerootTown` as a placeholder, which does NOT exist in `rh-hideout/pokeemerald-expansion` (real label: `gTileset_Petalburg`). Vanilla pokeemerald *does* have `gTileset_LittlerootTown` though. Decision: leave the README as-is (vanilla is the documented baseline), or note both? Pure docs change.
+- **Perf benchmarks** — `tests/integration/test_perf.py` asserting the targets in `.claude/agents/map-renderer.md` §"Performance targets" on case 1, case 5 and a synthetic 60x120.
+- **Overlay icons** — 12×12 PNG event icons + bitmap font for elevation labels (needs committed binary assets + wheel-include change).
+- ~~`gTileset_LittlerootTown` in README~~ — resolved in PR #15. The earlier note here was wrong: vanilla `pokeemerald` has no `gTileset_LittlerootTown` either; Littleroot uses `gTileset_Petalburg` in both.
 
 ---
 
@@ -143,7 +123,7 @@ Resolved decisions live under [`docs/decisions/`](docs/decisions/). No open deci
 
 - Vision: [`MCP_PORYMAP.md`](MCP_PORYMAP.md)
 - Operating manual: [`CLAUDE.md`](CLAUDE.md)
-- Current phase: [`docs/phases/phase-4-l3-vision.md`](docs/phases/phase-4-l3-vision.md)
+- Current phase: [`docs/phases/phase-5-release.md`](docs/phases/phase-5-release.md)
 - ADRs: [`docs/decisions/`](docs/decisions/)
 
 ---

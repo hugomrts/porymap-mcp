@@ -1,145 +1,166 @@
 # porymap-mcp
 
-> An [MCP](https://modelcontextprotocol.io) server that lets Claude — or any MCP client — author [Porymap](https://github.com/huderlem/porymap)-compatible Pokémon Gen-3 decompilation maps.
+**An [MCP](https://modelcontextprotocol.io) server that lets Claude, or any MCP client, paint, render and critique [Porymap](https://github.com/huderlem/porymap)-compatible maps for Pokémon Gen 3 decompilation projects.**
 
-[![Status](https://img.shields.io/badge/status-alpha-orange)](#status)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![CI](https://github.com/hugomrts/porymap-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/hugomrts/porymap-mcp/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/porymap-mcp)](https://pypi.org/project/porymap-mcp/)
 [![Python](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
----
+| Iteration 1: first draft | Iteration 2: after one critique pass |
+|:---:|:---:|
+| ![Iteration 1 render](examples/04_render_loop/renders/iter1.png) | ![Iteration 2 render](examples/04_render_loop/renders/iter2.png) |
+| Score **7 / 36** | Score **21 / 36** |
 
-> ⚠️ **Alpha.** `v0.1.0` (L1 — Filesystem) is tagged on GitHub. L3 — Vision (rendering + self-critique loop) is implemented on `main` and gates the upcoming `v1.0.0` (first stable, first PyPI release). L2 — Live Porymap was abandoned, see [ADR-0009](docs/decisions/0009-abandon-l2-live-porymap.md). See [`STATUS.md`](STATUS.md) for live progress.
+Both images were rendered by the server itself. The agent **paints** the map, **renders** it to PNG, gets the image back in the tool response, **critiques** it against a 12-criterion Gen 3 design rubric, fixes the top issues and renders again. Runnable walkthrough: [`examples/04_render_loop/`](examples/04_render_loop/).
 
 ---
 
 ## What it does
 
-`porymap-mcp` exposes a set of high-level tools to an AI agent so it can:
+- **Reads** a pokeemerald-family project: maps, layouts, tilesets, metatiles, events, prefabs.
+- **Writes** the same files Porymap writes: metatiles, rectangles, flood fills, borders, prefabs, warps, NPCs, signs (with a script stub), triggers, new maps and map-group registration. Writes are atomic.
+- **Renders** maps, regions and single metatiles to PNG and returns them as MCP `image` content blocks. Output is pixel-identical to Porymap's own export on a 5-map reference corpus (Littleroot Town, Route 101, Granite Cave 1F, Battle Frontier Outside East, plus a synthetic edge case).
 
-- **Read** a pokeemerald-family project's maps, tilesets, events, and prefabs.
-- **Write** map layouts (paint metatiles, rectangles, prefabs), events (warps, NPCs, signs, triggers), and project structure (register new maps).
-- **Render** maps to PNG and return them inline in tool responses — the agent *sees* its output, scores it with the [`map-design-critic`](.claude/agents/map-design-critic.md) sub-agent, and iterates. See [`examples/04_render_loop/`](examples/04_render_loop/).
+Porymap does not need to be running. Open the project in Porymap whenever you like: your manual workflow is untouched.
 
-It edits the same files Porymap edits — your manual workflow in Porymap is never disrupted.
-
-## What it doesn't do
-
-- It does **not** modify your tilesets (creating new metatiles stays in Porymap).
-- It does **not** run Porymap or require it to be open (for L1).
-- It does **not** generate Pokémon graphics, music, or story content. It generates map *files*.
-
-## Capability levels
-
-| Level | What it gives you | Status |
-|-------|-------------------|--------|
-| **L1 — Filesystem** | Edit map files directly. Open Porymap *after* to visualize. | ✅ Shipped — `v0.1.0` (GitHub tag) |
-| **L2 — Live Porymap** | Porymap reloads automatically as the agent edits. | ❌ Abandoned — see [ADR-0009](docs/decisions/0009-abandon-l2-live-porymap.md) |
-| **L3 — Vision** | Renders maps to PNG and returns them in tool calls — agent sees its work and self-critiques. | 🛠 Implemented on `main`; `v1.0.0` pending the 5-map fidelity corpus. |
+It does **not** edit tilesets (creating new metatiles stays in Porymap), and it does not generate graphics, music or story content.
 
 ## Compatibility
 
-Currently targeting **`pokeemerald-expansion`** (rh-hideout's fork) as the primary base game. Vanilla `pokeemerald` and `pokefirered` are planned for v0.2 and v0.3 respectively. See [ADR-0002](docs/decisions/0002-target-pokeemerald-expansion-first.md) for rationale.
+Built and tested against [`rh-hideout/pokeemerald-expansion`](https://github.com/rh-hideout/pokeemerald-expansion), the base most active hacks use today ([ADR-0002](docs/decisions/0002-target-pokeemerald-expansion-first.md)). Vanilla [`pret/pokeemerald`](https://github.com/pret/pokeemerald) uses the same file formats and loads the same way. Bit masks and paths are read from your `porymap.project.cfg`, so nothing is hard-coded per fork. `pokefirered` and `pokeruby` projects are recognised but not covered by the test corpus yet.
 
-## Install (when released)
+## Install
 
 ```bash
-pip install porymap-mcp
-# or
-uvx porymap-mcp
+pip install "porymap-mcp[render]"
 ```
 
-Register it with your MCP client (example: Claude Desktop's `claude_desktop_config.json`):
+Or run it with no install step via [uv](https://docs.astral.sh/uv/):
+
+```bash
+uvx --from "porymap-mcp[render]" porymap-mcp
+```
+
+The `render` extra pulls in Pillow and numpy for the three render tools. Without it (`pip install porymap-mcp`), the 21 read/write tools work on their own.
+
+Requires Python 3.11+.
+
+## Register it with your MCP client
+
+**Claude Code:**
+
+```bash
+claude mcp add porymap -- uvx --from "porymap-mcp[render]" porymap-mcp
+```
+
+**Claude Desktop** (`claude_desktop_config.json`) or any client that takes a JSON server list:
 
 ```json
 {
   "mcpServers": {
     "porymap": {
-      "command": "python",
-      "args": ["-m", "porymap_mcp"]
+      "command": "uvx",
+      "args": ["--from", "porymap-mcp[render]", "porymap-mcp"]
     }
   }
 }
 ```
 
-Then point your agent at a pokeemerald-expansion project — the project path is passed per tool call.
+If you installed with pip, use `"command": "porymap-mcp"` (or `"python"` with `"args": ["-m", "porymap_mcp"]`).
+
+No environment variables are needed: the project path is passed on every tool call, so one server can work on several projects.
 
 ## First map in 5 minutes
 
-Once registered, ask your agent something like:
+With the server registered, ask your agent:
 
-> *Open my pokeemerald project at `~/code/pokeemerald`. Create a new map called `LakesideTown` in the `gMapGroup_TownsAndRoutes` group, 20×20, using `gTileset_General` + `gTileset_LittlerootTown`. Paint a small house at (3,4) and put a sign in front of it that says "Welcome to Lakeside!".*
+> *Open my pokeemerald project at `~/code/pokeemerald-expansion`. Create a 20×20 map called `LakesideTown` in the `gMapGroup_TownsAndRoutes` group, using `gTileset_General` + `gTileset_Petalburg`. Stamp a small house at (3, 4), put a sign next to its door that says "Welcome to Lakeside!", then render the map and critique it.*
 
-The agent will:
+The agent will typically:
 
-1. Call `get_project_info` to confirm the project loads and which base game it targets.
-2. Call `list_tilesets` to confirm the two requested tilesets exist.
-3. Call `create_map` — this writes `data/maps/LakesideTown/map.json`, `data/layouts/LakesideTown/map.bin`, `data/layouts/LakesideTown/border.bin`, updates `data/layouts/layouts.json`, and registers the map in `data/maps/map_groups.json`.
-4. Call `paint_prefab("house_small", x=3, y=4)` to stamp the house footprint.
-5. Call `add_sign(x=4, y=7, text="Welcome to Lakeside!")` — this appends to `map.json` AND generates a poryscript stub at `data/maps/LakesideTown/scripts.pory`.
+1. Call `get_project_info` to confirm the project loads and read its config.
+2. Call `list_tilesets` to check that both tilesets exist.
+3. Call `create_map`, which writes `data/maps/LakesideTown/map.json`, `data/layouts/LakesideTown/map.bin` and `border.bin`, and registers the map in `data/layouts/layouts.json` and `data/maps/map_groups.json`.
+4. Call `paint_prefab` with `house_small` at (3, 4): a 3×3 footprint with its door at (4, 6).
+5. Call `add_sign` at (3, 7). This appends the event to `map.json` and generates a script stub (poryscript, or `.inc` if your project has `use_poryscript=0`).
+6. Call `render_map` and look at the PNG it gets back.
 
-Open the project in Porymap (or rebuild your ROM) — the map is there.
+Every write tool returns the list of files it modified. Open the project in Porymap, or rebuild your ROM: the map is there.
 
-## See your map (L3)
+> **Tileset labels.** Littleroot Town, Oldale Town and Petalburg City all use `gTileset_General` + `gTileset_Petalburg`, in both vanilla `pokeemerald` and `pokeemerald-expansion`. There is no `gTileset_LittlerootTown`. If your fork renames or adds tilesets, ask the agent to call `list_tilesets` first and pick from what it returns.
 
-After painting, the agent can ask the server to render the map and get a PNG back **inline in the tool response**. That render goes straight to the `map-design-critic` sub-agent, which scores it against a 12-criterion Gen 3 rubric (path geometry, tile variety, building placement, border softness, …) and returns a prioritized fix list. The agent applies the fixes and re-renders. The loop converges in 2–4 iterations on simple maps.
+## Tools
 
-| Iter 1 — naive draft | Iter 2 — after critique |
-|---------------------|--------------------------|
-| ![iter1](examples/04_render_loop/renders/iter1.png) | ![iter2](examples/04_render_loop/renders/iter2.png) |
-| Score: 7 / 36 | Score: 21 / 36 (+14) |
+24 tools. Each tool's docstring is what your agent reads, and the full contracts are in the ADRs listed below. Every tool takes `project_path` as its first argument.
 
-Walkthrough + runnable demo: [`examples/04_render_loop/`](examples/04_render_loop/).
+| Tool | Group | What it does |
+|------|-------|--------------|
+| `get_project_info` | Discovery | Project snapshot: base game, map, layout and tileset counts. |
+| `list_maps` | Discovery | Every map registered in `map_groups.json`. |
+| `get_map_info` | Discovery | Full metadata for one map: layout, tilesets, size, header. |
+| `list_tilesets` | Discovery | Every primary and secondary tileset found on disk. |
+| `list_metatiles` | Discovery | The metatiles of one tileset, with attributes. |
+| `list_prefabs` | Discovery | Named multi-metatile stamps available to `paint_prefab`. |
+| `list_events` | Discovery | Every event on a map, grouped by class. |
+| `paint_metatile` | Mutation | Set one tile (metatile, collision, elevation). Idempotent. |
+| `paint_rectangle` | Mutation | Fill an inclusive rectangle with one metatile. |
+| `flood_fill` | Mutation | Replace a 4-connected region of identical metatiles. |
+| `set_border` | Mutation | Replace the map's repeating border tiles. |
+| `paint_prefab` | Mutation | Stamp a named prefab, top-left anchored. |
+| `create_map` | Mutation | Create a new map: writes its files and registers it everywhere. |
+| `resize_map` | Mutation | Resize a layout from its top-left corner, keeping the overlapping content. |
+| `register_map` | Project | Add an existing map directory to `map_groups.json`. |
+| `unregister_map` | Project | Remove a map from `map_groups.json` (files are kept). |
+| `add_warp` | Events | Add a warp to another map. |
+| `add_object_event` | Events | Add an NPC, item ball or other object event. |
+| `add_sign` | Events | Add a sign with inline text and generate its script stub. |
+| `add_trigger` | Events | Add a coordinate-based script trigger. |
+| `remove_event` | Events | Remove any event by its id. |
+| `render_map` | Render | Render a full map to PNG, optionally with its border frame. |
+| `render_map_region` | Render | Render a rectangular slice of a large map. |
+| `render_metatile` | Render | Preview a single metatile from a tileset. |
 
-### Tool surface (v0.1 + L3)
+The three render tools accept `overlays` (`collision`, `elevation`, `grid`, `events`) and a `scale` factor. All seven map-mutation tools and all five event tools accept `return_render=True`, which adds the post-edit render to the same response and saves a round trip.
 
-**Discovery (7, read-only):**
-`get_project_info`, `list_maps`, `get_map_info`, `list_tilesets`, `list_metatiles`, `list_prefabs`, `list_events`.
+## Design records
 
-**Mutation (9):**
-`paint_metatile`, `paint_rectangle`, `flood_fill`, `set_border`, `paint_prefab`, `create_map`, `resize_map`, `register_map`, `unregister_map`. Every paint tool accepts `return_render: bool = False` — set it `True` and the response carries the post-paint PNG as well, folding the next `render_map` call into the same round-trip.
+Every decision that is hard to reverse is written up as an ADR in [`docs/decisions/`](docs/decisions/README.md):
 
-**Events (5):**
-`add_warp`, `add_object_event`, `add_sign`, `add_trigger`, `remove_event`. Also accept `return_render: bool = False`.
+- [ADR-0001](docs/decisions/0001-fastmcp-as-mcp-framework.md): FastMCP as the MCP framework
+- [ADR-0002](docs/decisions/0002-target-pokeemerald-expansion-first.md): pokeemerald-expansion as the primary target
+- [ADR-0003](docs/decisions/0003-project-class-and-config-driven-format.md): a single `Project` entry point, config-driven formats
+- [ADR-0004](docs/decisions/0004-tileset-metadata-source.md): where tileset metadata comes from
+- [ADR-0005](docs/decisions/0005-l1-discovery-tools-api.md), [ADR-0006](docs/decisions/0006-l1-mutation-tools-api.md), [ADR-0007](docs/decisions/0007-l1-event-tools-api.md): discovery, mutation and event tool contracts
+- [ADR-0008](docs/decisions/0008-prefab-library-and-paint-prefab.md): prefab library and `paint_prefab`
+- [ADR-0009](docs/decisions/0009-abandon-l2-live-porymap.md): why live Porymap hot-reload was dropped
+- [ADR-0010](docs/decisions/0010-l3-renderer-design.md): renderer design, including the four corrections found while validating against Porymap
 
-**Render (3, L3):**
-`render_map`, `render_map_region`, `render_metatile`. Each returns a FastMCP `ToolResult` whose `content[0]` is a PNG `ImageContent` block — agents see the map natively without base64-in-JSON. Overlays (`collision`, `elevation`, `grid`, `events`) and `include_border` are first-class flags.
+The project's vision document is [`MCP_PORYMAP.md`](MCP_PORYMAP.md) (in French).
 
-Every tool is documented inline (its docstring is what your agent reads). The full contracts live in the ADRs:
+## Prefabs
 
-- [ADR-0005](docs/decisions/0005-l1-discovery-tools-api.md) — discovery
-- [ADR-0006](docs/decisions/0006-l1-mutation-tools-api.md) — mutation
-- [ADR-0007](docs/decisions/0007-l1-event-tools-api.md) — events
-- [ADR-0008](docs/decisions/0008-prefab-library-and-paint-prefab.md) — prefabs
-- [ADR-0010](docs/decisions/0010-l3-renderer-design.md) — L3 renderer (numpy + Pillow, GBA 5-bit quantization, pixel-identical fidelity)
-
-### Prefab library
-
-`paint_prefab` ships with a small built-in library of tileset-agnostic stamps: `single_tree`, `flower_patch`, `house_small`. The metatile IDs target vanilla pokeemerald conventions; forks with custom tilesets may need to retarget by registering replacement prefabs into `porymap_mcp.prefabs.LIBRARY` (a plain dict). See [ADR-0008](docs/decisions/0008-prefab-library-and-paint-prefab.md).
+`paint_prefab` ships with three stamps: `single_tree`, `flower_patch` and `house_small`. Their metatile IDs follow vanilla `gTileset_General` conventions. If your fork uses custom tilesets, register your own prefabs in `porymap_mcp.prefabs.LIBRARY` (a plain dict). See [ADR-0008](docs/decisions/0008-prefab-library-and-paint-prefab.md).
 
 ## Develop
 
 ```bash
 git clone https://github.com/hugomrts/porymap-mcp
 cd porymap-mcp
-uv sync --all-extras   # or: pip install -e ".[dev]"
+uv sync --all-extras        # or: pip install -e ".[dev]"
 pre-commit install
 pytest
 ```
 
-See [`docs/phases/`](docs/phases/) for the implementation roadmap and [`CLAUDE.md`](CLAUDE.md) for the AI-assisted development conventions used in this repo (anyone can use them — the `.claude/agents/` are open-source too).
-
-## Status
-
-See [`STATUS.md`](STATUS.md) for the live snapshot of progress and [`docs/phases/`](docs/phases/) for the per-phase specifications.
+CI blocks on `ruff check`, `ruff format --check`, `mypy --strict` and the full test suite (Linux and macOS, Python 3.11 to 3.13). [`CLAUDE.md`](CLAUDE.md) describes the conventions used to develop this repo with Claude Code, including the sub-agents in [`.claude/agents/`](.claude/agents/), which anyone can reuse.
 
 ## Acknowledgements
 
-- [Porymap](https://github.com/huderlem/porymap) by Marcus Huderle — the editor we extend by AI.
-- [pret](https://github.com/pret) — the decompilation projects that make all of this possible.
-- [rh-hideout](https://github.com/rh-hideout) — the `pokeemerald-expansion` fork.
-- [FastMCP](https://github.com/jlowin/fastmcp) — the Python MCP framework used here.
-- [Anthropic](https://anthropic.com) — for MCP itself.
+- [Porymap](https://github.com/huderlem/porymap) by Marcus Huderle: the editor whose files this server writes.
+- [pret](https://github.com/pret): the decompilation projects that make all of this possible.
+- [rh-hideout](https://github.com/rh-hideout): the `pokeemerald-expansion` fork.
+- [FastMCP](https://github.com/jlowin/fastmcp): the Python MCP framework used here.
 
 ## License
 
-[MIT](LICENSE).
+[MIT](LICENSE)
